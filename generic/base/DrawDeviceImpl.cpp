@@ -2,6 +2,13 @@
 #include "tjsCommHead.h"
 #include "Application.h"
 
+static tTJSNativeClass *nativeClass = NULL;
+
 tTJSNativeClass* TVPGetDefaultDrawDevice() {
-	return Application->GetDefaultDrawDevice();
+    if (!nativeClass) {
+		nativeClass = Application->GetDefaultDrawDevice();
+    } else {
+        nativeClass->AddRef();
+    }
+    return nativeClass;
 }

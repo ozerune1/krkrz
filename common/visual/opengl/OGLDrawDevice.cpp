@@ -14,14 +14,14 @@
 #include "WindowImpl.h"
 
 // フォーム参照用
-#ifdef __WIN32__
+#ifdef __WINVER__
 #include "WindowFormUnit.h"
 #else
 #include "WindowForm.h"
 #endif
 
 
-#include "BitmapInfomationImpl.h"
+#include "BitmapInfomation.h"
 
 #include "TextureIntf.h"
 #include "Matrix32Intf.h"
@@ -42,7 +42,7 @@ tTVPOGLDrawDevice::tTVPOGLDrawDevice(iTJSDispatch2 *self)
  , MatrixInstance(nullptr)
  , GLContext(nullptr)
  , DoCreateCanvas(false)
-#ifndef __WIN32__
+#ifndef __WINVER__
  , _video_texture(0)
  , mVideoBuffer(0)
  , mVideoBufferDirty(false)
@@ -96,7 +96,7 @@ tTVPOGLDrawDevice::tTVPOGLDrawDevice(iTJSDispatch2 *self)
 		MatrixClass->Release();
 	}
 
-#ifndef __WIN32__
+#ifndef __WINVER__
     // 描画位置指定・いったん全画面対象
     _video_position[0] = -1.0f; // left top
     _video_position[1] =  1.0f;
@@ -191,7 +191,7 @@ void TJS_INTF_METHOD tTVPOGLDrawDevice::Show()
 
 	InitPosition();
 
-#ifndef __WIN32__
+#ifndef __WINVER__
 	if (ShowVideo()) {
 	} else
 #endif
@@ -410,7 +410,7 @@ void TJS_INTF_METHOD tTVPOGLDrawDevice::SetWindowInterface(iTVPWindow * window)
 		TVPThrowExceptionMessage(TVPSpecifyWindow);
 	}
 
-#ifdef __WIN32__
+#ifdef __WINVER__
 	void *nativeWindow = NIWindow->GetForm()->GetHandle();
 #else
 	void *nativeWindow = NIWindow->GetForm()->NativeWindowHandle();
@@ -481,14 +481,14 @@ void TJS_INTF_METHOD tTVPOGLDrawDevice::StartBitmapCompletion(iTVPLayerManager *
 }
 //---------------------------------------------------------------------------
 void TJS_INTF_METHOD tTVPOGLDrawDevice::NotifyBitmapCompleted(iTVPLayerManager * manager,
-	tjs_int x, tjs_int y, const void * bits, const class BitmapInfomation * bmpinfo,
+	tjs_int x, tjs_int y, const void * bits, const BITMAPINFO * bmpinfo,
 	const tTVPRect &cliprect, tTVPLayerType type, tjs_int opacity)
 {
 	if (!TextureInstance) return;
 
-	int _width  = bmpinfo->GetWidth();
-	int _height = bmpinfo->GetHeight();
-	int _pitch  = bmpinfo->GetPitchBytes(); 
+	int _width  = bmpinfo->bmiHeader.biWidth;
+	int _height = bmpinfo->bmiHeader.biHeight;
+	int _pitch  = bmpinfo->bmiHeader.biSizeImage / _height;
 
 	int src_w = cliprect.get_width();
 	int src_h = cliprect.get_height();

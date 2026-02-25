@@ -36,6 +36,16 @@ struct iTVPFunctionExporter
 };
 //---------------------------------------------------------------------------
 
+//---------------------------------------------------------------------------
+// iTVPStaticPlugin structure for registering static plugins to
+//---------------------------------------------------------------------------
+struct iTVPStaticPlugin {
+    const tjs_char* name;
+	int32_t (STDCALL *link)(iTVPFunctionExporter *);
+	int32_t (STDCALL *unlink)();
+};
+extern "C" void TVPRegisterPlugin(const iTVPStaticPlugin* plugin);
+//---------------------------------------------------------------------------
 
 /*]*/
 //---------------------------------------------------------------------------
@@ -47,23 +57,23 @@ struct IWaveUnpacker;
 struct ITSSStorageProvider;
 extern "C"
 {
-	iTVPFunctionExporter * __stdcall TVPGetFunctionExporter();
+	iTVPFunctionExporter * STDCALL TVPGetFunctionExporter();
 
 	// V2 plug-in
-	typedef HRESULT (_stdcall * tTVPV2LinkProc)(iTVPFunctionExporter *);
-	typedef HRESULT (_stdcall * tTVPV2UnlinkProc)();
+	typedef HRESULT (STDCALL * tTVPV2LinkProc)(iTVPFunctionExporter *);
+	typedef HRESULT (STDCALL * tTVPV2UnlinkProc)();
 
 	// TSS
-	typedef HRESULT (_stdcall * tTVPGetModuleInstanceProc)(ITSSModule **out,
+	typedef HRESULT (STDCALL * tTVPGetModuleInstanceProc)(ITSSModule **out,
 		ITSSStorageProvider *provider, IStream * config, HWND mainwin);
-	typedef ULONG (_stdcall * tTVPGetModuleThreadModelProc)(void);
-	typedef HRESULT (_stdcall * tTVPShowConfigWindowProc)(HWND parentwin,
+	typedef ULONG (STDCALL * tTVPGetModuleThreadModelProc)(void);
+	typedef HRESULT (STDCALL * tTVPShowConfigWindowProc)(HWND parentwin,
 		IStream * storage );
-	typedef ULONG (_stdcall * tTVPCanUnloadNowProc)(void);
+	typedef ULONG (STDCALL * tTVPCanUnloadNowProc)(void);
 
 #ifdef TVP_SUPPORT_OLD_WAVEUNPACKER
 	// WaveUnpacker
-	typedef HRESULT (_stdcall * tTVPCreateWaveUnpackerProc)(IStream *storage,long size,
+	typedef HRESULT (STDCALL * tTVPCreateWaveUnpackerProc)(IStream *storage,long size,
 		char *name,IWaveUnpacker **out); // old WaveUnpacker stuff
 #endif
 }
@@ -114,7 +124,7 @@ TJS_EXP_FUNC_DEF(void, TVP_md5_init, (TVP_md5_state_t *pms));
 TJS_EXP_FUNC_DEF(void, TVP_md5_append, (TVP_md5_state_t *pms, const tjs_uint8 *data, int nbytes));
 TJS_EXP_FUNC_DEF(void, TVP_md5_finish, (TVP_md5_state_t *pms, tjs_uint8 *digest));
 
-TJS_EXP_FUNC_DEF(HWND, TVPGetApplicationWindowHandle, ());
+TJS_EXP_FUNC_DEF_ENV(__WINVER__, HWND, TVPGetApplicationWindowHandle, ());
 TJS_EXP_FUNC_DEF(void, TVPProcessApplicationMessages, ());
 TJS_EXP_FUNC_DEF(void, TVPHandleApplicationMessage, ());
 

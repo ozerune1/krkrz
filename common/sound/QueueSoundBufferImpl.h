@@ -14,8 +14,7 @@
 
 #include "WaveIntf.h"
 #include "WaveLoopManager.h"
-#include "AudioStream.h"
-#include "SoundPlayer.h"
+#include "MiniAudioEngine.h"
 
 //---------------------------------------------------------------------------
 // Constants
@@ -54,9 +53,10 @@ struct tTVPWaveFormat
 };
 */
 //---------------------------------------------------------------------------
-// tTJSNI_PortAudioSoundBuffer : Wave Native Instance
+// tTJSNI_QueueSoundBuffer : Wave Native Instance
 //---------------------------------------------------------------------------
 class tTVPWaveLoopManager;
+struct tTVPMiniAudioContext;  // miniaudio 関連の内部構造（cpp で定義）
 class tTJSNI_QueueSoundBuffer : public tTJSNI_BaseWaveSoundBuffer
 {
 	typedef  tTJSNI_BaseWaveSoundBuffer inherited;
@@ -64,7 +64,16 @@ class tTJSNI_QueueSoundBuffer : public tTJSNI_BaseWaveSoundBuffer
 
 	tTVPWaveDecoder * Decoder;
 	class tTVPSoundDecodeThread * Thread;
-	tTVPSoundPlayer Player;
+
+	// miniaudio サウンド管理
+	tTVPMiniAudioContext *AudioContext;
+	std::vector<class tTVPSoundSamplesBuffer*> Samples;
+
+	bool IsPlaying();
+
+	tjs_int64 GetCurrentPlayingPosition();
+
+	bool Paused;
 
 	tTVPWaveFormat InputFormat;
 	bool Looping;
@@ -96,9 +105,11 @@ class tTJSNI_QueueSoundBuffer : public tTJSNI_BaseWaveSoundBuffer
 	void StartPlay();
 	void StopPlay();
 
-	void CreateSoundBuffer();
 	void ResetLastCheckedDecodePos();
 public:
+	// miniaudio から呼ばれるデータ読み出し（static関数からアクセスされるためpublic）
+	int ReadAudioData(void* pFramesOut, int frameCount);
+
 	bool ThreadCallbackEnabled;
 
 	tTJSNI_QueueSoundBuffer();
@@ -111,8 +122,8 @@ public:
 
 	tTJSCriticalSection & GetBufferCS() { return BufferCS; }
 
-	void PushPlayStream( class tTVPSoundSamplesBuffer* buffer );
-	void ReleasePlayedSamples( class tTVPSoundSamplesBuffer* buffer, bool continued );
+	void PushPlaySample( class tTVPSoundSamplesBuffer* buffer );
+	void ReleasePlayedSample( class tTVPSoundSamplesBuffer* buffer);
 
 	tjs_int FireLabelEventsAndGetNearestLabelEventStep(tjs_int64 tick);
 	tjs_int GetNearestEventStep();

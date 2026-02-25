@@ -57,8 +57,8 @@ public:
 	// VBOに描画サイズを設定しておき、テクスチャサイズ以外で描画させる
 	void SetDrawSize( tjs_uint width, tjs_uint height );
 
-	tTVPTextureColorFormat format() const { return Texture.format(); }
-	virtual GLint glformat() const { return Texture.glformat(); }
+	tTVPTextureColorFormat format() const override { return Texture.format(); }
+	GLint glformat() const override { return Texture.glformat(); }
 
 	void UpdateTexture(int x, int y, int w, int h, std::function<void(char *dest, int pitch)> updator) {
 		Texture.UpdateTexture(x, y, w, h, updator);

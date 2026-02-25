@@ -3,7 +3,7 @@
 #ifndef __USER_EVENT_H__
 #define __USER_EVENT_H__
 
-#ifdef __WIN32__
+#ifdef __WINVER__
 // Windows 固有環境
 #define TVP_EV_TIMER_THREAD			(WM_APP + 1)
 #define TVP_EV_WAVE_SND_BUF_THREAD	(TVP_EV_TIMER_THREAD + 1)

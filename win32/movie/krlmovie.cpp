@@ -15,6 +15,7 @@
 #include "tp_stub.h"
 #include "dslayerd.h"
 #include "krmovie.h"
+#include "webplayer.h"
 
 #include "asyncio.h"
 #include "asyncrdr.h"
@@ -36,6 +37,17 @@ EXPORT(void) GetVideoLayerObject(
 	HWND callbackwin, IStream *stream, const tjs_char * streamname,
 	const tjs_char *type, unsigned __int64 size, iTVPVideoOverlay **out)
 {
+	if (_wcsicmp((const wchar_t*)type, L".webm") == 0) {
+		tTVPWebpMovie *video = new tTVPWebpMovie(callbackwin);
+		if (video->Open(stream)) {
+			*out = video;
+		} else {
+			delete video;
+			*out = nullptr;
+		}
+		return;
+	}
+
 	*out = new tTVPDSLayerVideo;
 
 	if( *out )

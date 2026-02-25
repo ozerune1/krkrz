@@ -890,7 +890,7 @@ void TJS_INTF_METHOD tTJSNI_Window::NotifyBitmapCompleted(class iTVPLayerManager
 	const tTVPRect &cliprect, tTVPLayerType type, tjs_int opacity)
 {
 	if( DrawDevice ) {
-		DrawDevice->NotifyBitmapCompleted(manager,x,y,bits,bitmapinfo, cliprect, type, opacity );
+		DrawDevice->NotifyBitmapCompleted(manager,x,y,bits,bitmapinfo->GetBITMAPINFO(), cliprect, type, opacity );
 	}
 }
 //---------------------------------------------------------------------------

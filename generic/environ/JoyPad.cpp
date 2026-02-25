@@ -4,7 +4,7 @@
 
 #include "Application.h"
 #include "WindowForm.h"
-#include "Logintf.h"
+#include "LogIntf.h"
 
 // ビット位置とキーマップの対応
 static int TVPPadVirtualKeyMap[] = {

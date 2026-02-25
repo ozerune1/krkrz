@@ -24,6 +24,10 @@
 #include "DShowException.h"
 #endif
 
+
+// YUV2 -> ARGB変換用
+#include <libyuv.h>
+
 //----------------------------------------------------------------------------
 //##	TBufferRenderer
 //----------------------------------------------------------------------------
@@ -64,6 +68,7 @@ TBufferRenderer::TBufferRenderer( TCHAR *pName, LPUNKNOWN pUnk, HRESULT *phr )
 	m_FrontBuffer = 0;
 
 	m_StartFrame = 0;
+	m_RenderBuffer = NULL;
 }
 #pragma warning(default: 4355)
 //----------------------------------------------------------------------------
@@ -78,7 +83,26 @@ TBufferRenderer::~TBufferRenderer()
 	// 自分で確保している場合バッファの解放
 	FreeFrontBuffer();
 	FreeBackBuffer();
+
+	FreeRenderBuffer();
 }
+
+void TBufferRenderer::InitRenderBuffer(size_t size)
+{
+	FreeRenderBuffer();
+	m_RenderBuffer = reinterpret_cast<BYTE*>(CoTaskMemAlloc(size));
+	SetPointer(m_RenderBuffer);
+}
+
+void TBufferRenderer::FreeRenderBuffer()
+{
+	if (m_RenderBuffer) {
+		CoTaskMemFree( m_RenderBuffer );
+		m_RenderBuffer = NULL;
+	}
+}
+
+
 //----------------------------------------------------------------------------
 //! @brief	  	要求されたインターフェイスを返す
 //! 
@@ -123,7 +147,8 @@ HRESULT TBufferRenderer::CheckMediaType( const CMediaType *pmt )
 	pvi = (VIDEOINFO *)pmt->Format();
 	if( IsEqualGUID( *pmt->Type(), MEDIATYPE_Video) )
 	{
-		if( IsEqualGUID( *pmt->Subtype(), MEDIASUBTYPE_RGB32) || 
+		if( IsEqualGUID( *pmt->Subtype(), MEDIASUBTYPE_YUY2) ||
+			IsEqualGUID( *pmt->Subtype(), MEDIASUBTYPE_RGB32) || 
 			IsEqualGUID( *pmt->Subtype(), MEDIASUBTYPE_ARGB32) )
 		{
 			hr = S_OK;
@@ -145,6 +170,29 @@ HRESULT TBufferRenderer::SetMediaType( const CMediaType *pmt )
 	// Retrive the size of this media type
 	VIDEOINFO *pviBmp;						// Bitmap info header
 	pviBmp = (VIDEOINFO *)pmt->Format();
+
+#ifdef _DEBUG
+	// サブタイプの表示
+	OLECHAR* guidString = NULL;
+	if (SUCCEEDED(StringFromCLSID(*pmt->Subtype(), &guidString)))
+	{
+		DbgLog((LOG_TRACE, 0, TEXT("SetMediaType: Subtype = %s"), guidString));
+		CoTaskMemFree(guidString);
+	}
+	
+	// ビデオ情報の詳細
+	DbgLog((LOG_TRACE, 0, TEXT("SetMediaType: Width = %d, Height = %d"), 
+		pviBmp->bmiHeader.biWidth, pviBmp->bmiHeader.biHeight));
+	DbgLog((LOG_TRACE, 0, TEXT("SetMediaType: BitCount = %d, Compression = %d"), 
+		pviBmp->bmiHeader.biBitCount, pviBmp->bmiHeader.biCompression));
+	DbgLog((LOG_TRACE, 0, TEXT("SetMediaType: SizeImage = %d"), 
+		pviBmp->bmiHeader.biSizeImage));
+	DbgLog((LOG_TRACE, 0, TEXT("SetMediaType: AvgTimePerFrame = %lld"), 
+		pviBmp->AvgTimePerFrame));
+#endif
+
+	m_isYUV2 = IsEqualGUID(*pmt->Subtype(), MEDIASUBTYPE_YUY2);
+
 	m_VideoWidth  = pviBmp->bmiHeader.biWidth;
 	m_VideoHeight = abs(pviBmp->bmiHeader.biHeight);
 	m_VideoPitch = m_VideoWidth * 4;	// RGB32に決め打ち
@@ -154,6 +202,11 @@ HRESULT TBufferRenderer::SetMediaType( const CMediaType *pmt )
 
 	if( !IsAllocatedBackBuffer() )
 		AllocBackBuffer( GetBufferSize() );
+
+	if (m_isYUV2) {
+		// レンダリング用バッファの準備
+		InitRenderBuffer(m_VideoWidth * m_VideoHeight * 2);
+	}
 
 	return S_OK;
 }
@@ -199,25 +252,18 @@ HRESULT TBufferRenderer::DoRenderSample( IMediaSample * pSample )
 	}
 
 	// 自前のアロケーターではないのでメモリをコピーする
-#if 0
-	// 下から上にコピー(上下反転化)
-	{
-		int		height = m_VideoHeight;
-		int		width = m_VideoWidth;
-		pBmpBuffer += width * (height-1);
-		for( int j = 0; j < height; j++ )
-		{
-			for( int i = 0; i < width; i++ )
-			{
-				pTxtBuffer[i] = pBmpBuffer[i];
-			}
-			pBmpBuffer -= width;
-			pTxtBuffer += width;
-		}
-	}
-#else
-	// 上から下にコピー
-	{
+	if (m_isYUV2) {
+
+		uint8_t *pTxt = reinterpret_cast<uint8_t*>(pTxtBuffer);
+		pTxt += (m_VideoHeight - 1) * m_VideoWidth * 4; // 下から上へコピーするので、最後の行へ移動
+
+		// YUY2 -> ARGB変換
+		libyuv::YUY2ToARGB(reinterpret_cast<const uint8_t*>(pBmpBuffer), m_VideoWidth * 2,
+						   pTxt, -m_VideoWidth * 4,
+						   m_VideoWidth, m_VideoHeight);
+	} else {
+		// ARGB
+		// 上から下にコピー
 		int		height = m_VideoHeight;
 		int		width = m_VideoWidth;
 		for( int j = 0; j < height; j++ )
@@ -230,7 +276,7 @@ HRESULT TBufferRenderer::DoRenderSample( IMediaSample * pSample )
 			pTxtBuffer += width;
 		}
 	}
-#endif
+
 	if( m_pSink )
 		m_pSink->Notify( EC_UPDATE, EventParam1, NULL );
 	SwapBuffer( pSample );	// FrontとBackバッファを入れ替える
@@ -245,13 +291,19 @@ void TBufferRenderer::SwapBuffer( IMediaSample *pSample )
 	CAutoLock cAutoLock(&m_BufferLock);	// クリティカルセクション
 	if( m_FrontBuffer == 1 )
 	{
-		SetPointer( pSample, m_Buffer[1] );
 		m_FrontBuffer = 0;
 	}
 	else
 	{
-		SetPointer( pSample, m_Buffer[0] );
 		m_FrontBuffer = 1;
+	}
+	if (m_RenderBuffer) {
+		SetPointer(pSample, m_RenderBuffer);
+	} else {
+		if( m_FrontBuffer == 1 )
+			SetPointer( pSample, m_Buffer[0] );
+		else
+			SetPointer( pSample, m_Buffer[1] );
 	}
 }
 //---------------------------------------------------------------------------

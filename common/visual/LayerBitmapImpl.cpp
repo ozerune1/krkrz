@@ -25,7 +25,7 @@
 #include "SysInitImpl.h"
 #include "StorageIntf.h"
 #include "DebugIntf.h"
-#ifdef __WIN32__
+#ifdef __WINVER__
 #include "WindowFormUnit.h"
 #endif
 #include "UtilStreams.h"
@@ -38,7 +38,7 @@
 #include "FontSystem.h"
 #include "FreeType.h"
 #include "FreeTypeFontRasterizer.h"
-#ifdef __WIN32__
+#ifdef __WINVER__
 #include "TVPSysFont.h"
 #include "GDIFontRasterizer.h"
 #endif
@@ -63,19 +63,24 @@ static tjs_int TVPGlobalFontStateMagic = 0;
 
 enum {
 	FONT_RASTER_FREE_TYPE,
-#ifdef __WIN32__
+#ifdef __WINVER__
 	FONT_RASTER_GDI,
 #endif
 	FONT_RASTER_EOT
 };
 static FontRasterizer* TVPFontRasterizers[FONT_RASTER_EOT];
 static bool TVPFontRasterizersInit = false;
+
+#ifdef __WINVER__
+static tjs_int TVPCurrentFontRasterizers = FONT_RASTER_GDI;
+#else
 static tjs_int TVPCurrentFontRasterizers = FONT_RASTER_FREE_TYPE;
+#endif
 
 void TVPInializeFontRasterizers() {
 	if( TVPFontRasterizersInit == false ) {
 		TVPFontRasterizers[FONT_RASTER_FREE_TYPE] = new FreeTypeFontRasterizer();
-#ifdef __WIN32__
+#ifdef __WINVER__
 		TVPFontRasterizers[FONT_RASTER_GDI] = new GDIFontRasterizer();
 #endif
 
@@ -379,7 +384,7 @@ static tTVPCharacterData * TVPGetCharacter(const tTVPFontAndCharacterData & font
 tTVPBitmap::tTVPBitmap(tjs_uint width, tjs_uint height, tjs_uint bpp, bool unpadding)
 {
 	// tTVPBitmap constructor
-#ifdef __WIN32__
+#ifdef __WINVER__
 	TVPInitWindowOptions(); // ensure window/bitmap usage options are initialized
 #endif
 	RefCount = 1;
@@ -390,7 +395,7 @@ tTVPBitmap::tTVPBitmap(tjs_uint width, tjs_uint height, tjs_uint bpp, bool unpad
 tTVPBitmap::tTVPBitmap(tjs_uint width, tjs_uint height, tjs_uint bpp, void* bits)
 {
 	// tTVPBitmap constructor
-#ifdef __WIN32__
+#ifdef __WINVER__
 	TVPInitWindowOptions(); // ensure window/bitmap usage options are initialized
 #endif
 	RefCount = 1;
@@ -431,7 +436,7 @@ tTVPBitmap::~tTVPBitmap()
 tTVPBitmap::tTVPBitmap(const tTVPBitmap & r)
 {
 	// constructor for cloning bitmap
-#ifdef __WIN32__
+#ifdef __WINVER__
 	TVPInitWindowOptions(); // ensure window/bitmap usage options are initialized
 #endif
 	RefCount = 1;

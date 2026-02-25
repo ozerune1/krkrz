@@ -72,6 +72,7 @@ public:
 		InSamples = SampleSize;
 	}
 	tjs_uint8* GetBuffer() { return Buffer; }
+	tjs_uint GetBufferSize() const { return ByteSize; }
 	const tjs_uint8* GetBuffer() const { return Buffer; }
 	tjs_uint GetSamplesCount() const { return SampleSize; }
 
@@ -91,9 +92,6 @@ public:
 		if( UseVisBuffer ) {
 			memcpy( VisBuffer, Buffer, ByteSize );
 		}
-	}
-	void Enqueue( iTVPAudioStream* stream ) {
-		stream->Enqueue( Buffer, ByteSize, InSamples != SampleSize );
 	}
 
 	void SetDecodePosition( tjs_int64 pos ) { DecodePos = pos; }

@@ -8,7 +8,7 @@
 
 #include <stdio.h>
 
-#ifndef __WIN32__
+#ifndef __WINVER__
 #include "CharacterSet.h"
 #endif
 
@@ -24,7 +24,7 @@ public:
 
 	bool Open( const tjs_char* filename, const tjs_char* mode ) {
 		Close();
-#ifdef __WIN32__
+#ifdef __WINVER__
 		fp_ = _wfopen((const wchar_t*)filename, (const wchar_t*)mode);
 		return fp_ != NULL;
 #else

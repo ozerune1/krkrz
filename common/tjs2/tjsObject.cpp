@@ -410,20 +410,14 @@ tTJSCustomObject::tTJSCustomObject(tjs_int hashbits)
 	}
 	finalize_name = FinalizeName;
 	missing_name = MissingName;
-	for(tjs_int i=0; i<TJS_MAX_NATIVE_CLASS; i++) {
-		ClassInstances[i] = nullptr;
-		ClassIDs[i] = (tjs_int32)-1;
-	}
 }
 //---------------------------------------------------------------------------
 tTJSCustomObject::~tTJSCustomObject()
 {
-	for(tjs_int i=TJS_MAX_NATIVE_CLASS-1; i>=0; i--)
-	{
-		if(ClassIDs[i]!=-1)
-		{
-			if(ClassInstances[i]) ClassInstances[i]->Destruct();
-		}
+	for (auto ci = ClassInstances.rbegin(); ci != ClassInstances.rend(); ci++) {
+		if ((*ci) != nullptr) {
+			(*ci)->Destruct();
+		}			
 	}
 	delete [] Symbols;
 	if(TJSObjectHashMapEnabled()) TJSRemoveObjectHashRecord(this);
@@ -459,13 +453,12 @@ void tTJSCustomObject::Finalize(void)
 			NULL, this);
 	}
 
-	for(tjs_int i=TJS_MAX_NATIVE_CLASS-1; i>=0; i--)
-	{
-		if(ClassIDs[i]!=-1)
-		{
-			if(ClassInstances[i]) ClassInstances[i]->Invalidate();
+	for (auto ci = ClassInstances.rbegin(); ci != ClassInstances.rend(); ci++) {
+		if ((*ci) != nullptr) {
+			(*ci)->Invalidate();
 		}
 	}
+
 	DeleteAllMembers();
 }
 //---------------------------------------------------------------------------
@@ -2080,7 +2073,7 @@ tTJSCustomObject::NativeInstanceSupport(tjs_uint32 flag, tjs_int32 classid,
 	if(flag == TJS_NIS_GETINSTANCE)
 	{
 		// search "classid"
-		for(tjs_int i=0; i<TJS_MAX_NATIVE_CLASS; i++)
+		for(tjs_int i=0; i<ClassIDs.size(); i++)
 		{
 			if(ClassIDs[i] == classid)
 			{
@@ -2093,18 +2086,9 @@ tTJSCustomObject::NativeInstanceSupport(tjs_uint32 flag, tjs_int32 classid,
 
 	if(flag == TJS_NIS_REGISTER)
 	{
-		// search for the empty place
-		for(tjs_int i=0; i<TJS_MAX_NATIVE_CLASS; i++)
-		{
-			if(ClassIDs[i] == -1)
-			{
-				// found... writes there
-				ClassIDs[i] = classid;
-				ClassInstances[i] = *pointer;
-				return TJS_S_OK;
-			}
-		}
-		return TJS_E_FAIL;
+		ClassIDs.push_back(classid);
+		ClassInstances.push_back(*pointer);
+		return TJS_S_OK;
 	}
 
 	return TJS_E_NOTIMPL;

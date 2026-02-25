@@ -21,6 +21,8 @@ tTJSNativeClass* TVPGetDefaultDrawDevice()
 		#else
 			nativeClass = new tTJSNC_BasicDrawDevice();
 		#endif
+	} else {
+		nativeClass->AddRef();
 	}
 	return nativeClass;
 }

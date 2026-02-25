@@ -130,8 +130,6 @@ public:
 	void Clear(void);
 	void SetSize(tjs_uint size);
 
-	void TJS_INTF_METHOD SetPosition(tjs_uint64 pos);
-
 protected:
 	void Init();
 

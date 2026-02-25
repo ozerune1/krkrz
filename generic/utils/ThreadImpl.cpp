@@ -5,6 +5,10 @@
 
 #include <thread>
 #include <pthread.h>
+#ifdef __ANDROID__
+#include <sched.h>
+#include <unistd.h>
+#endif
 
 class tTVPNativeThread : public tTVPNativeThreadIntf
 {
@@ -99,7 +103,13 @@ tTVPNativeThread::SetProcessorNo(int no)
 	cpu_set_t cpuset;
 	CPU_ZERO( &cpuset );
 	CPU_SET( no, &cpuset );
+#ifdef __ANDROID__
+	// Android (Bionic) doesn't have pthread_setaffinity_np
+	pid_t tid = gettid();
+	int rc = sched_setaffinity(tid, sizeof(cpu_set_t), &cpuset);
+#else
 	int rc = pthread_setaffinity_np( GetHandle(), sizeof( cpu_set_t ), &cpuset );
+#endif
 }
 
 unsigned tTVPNativeThread::ThreadFunc(void *arg)

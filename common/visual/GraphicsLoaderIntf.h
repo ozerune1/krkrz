@@ -115,34 +115,39 @@ void TVPUnregisterGraphicLoadingHandler(const ttstr & name,
 
 /*[*/
 /* For grahpic load and save */
+#ifdef _WIN32
 typedef void (*tTVPGraphicLoadingHandlerForPlugin)(void* formatdata,
 	void *callbackdata,
 	tTVPGraphicSizeCallback sizecallback,
 	tTVPGraphicScanLineCallback scanlinecallback,
 	tTVPMetaInfoPushCallback metainfopushcallback,
-	struct IStream *src,
+	IStream *src,
 	tjs_int32 keyidx,
 	tTVPGraphicLoadMode mode);
-typedef void (*tTVPGraphicHeaderLoadingHandlerForPlugin)(void* formatdata, struct IStream* src, class iTJSDispatch2** dic );
-typedef void (*tTVPGraphicSaveHandlerForPlugin)(void* formatdata, void* callbackdata, struct IStream* dst, const ttstr & mode,
+typedef void (*tTVPGraphicHeaderLoadingHandlerForPlugin)(void* formatdata, IStream* src, class iTJSDispatch2** dic );
+typedef void (*tTVPGraphicSaveHandlerForPlugin)(void* formatdata, void* callbackdata, IStream* dst, const ttstr & mode,
 	tjs_uint width, tjs_uint height,
 	tTVPGraphicSaveScanLineCallback scanlinecallback,
 	class iTJSDispatch2* meta );
+#endif
 /*]*/
 
-TJS_EXP_FUNC_DEF( void, TVPRegisterGraphicLoadingHandler, (const ttstr & name,
+#ifdef _WIN32
+TJS_EXP_FUNC_DEF_ENV( _WIN32, void, TVPRegisterGraphicLoadingHandler, (const ttstr & name,
 	tTVPGraphicLoadingHandlerForPlugin loading,
 	tTVPGraphicHeaderLoadingHandlerForPlugin header,
 	tTVPGraphicSaveHandlerForPlugin save,
 	tTVPGraphicAcceptSaveHandler accept,
 	void* formatdata));
 
-TJS_EXP_FUNC_DEF( void, TVPUnregisterGraphicLoadingHandler, (const ttstr & name,
+TJS_EXP_FUNC_DEF_ENV( _WIN32, void, TVPUnregisterGraphicLoadingHandler, (const ttstr & name,
 	tTVPGraphicLoadingHandlerForPlugin loading,
 	tTVPGraphicHeaderLoadingHandlerForPlugin header,
 	tTVPGraphicSaveHandlerForPlugin save,
 	tTVPGraphicAcceptSaveHandler accept,
 	void* formatdata));
+#endif
+
 //---------------------------------------------------------------------------
 
 
@@ -338,15 +343,21 @@ struct tTVPGraphicHandlerType
 	ttstr Extension;
 	union {
 		tTVPGraphicLoadingHandler LoadHandler;
+#ifdef _WIN32
 		tTVPGraphicLoadingHandlerForPlugin LoadHandlerPlugin;
+#endif
 	};
 	union {
 		tTVPGraphicHeaderLoadingHandler HeaderHandler;
+#ifdef _WIN32
 		tTVPGraphicHeaderLoadingHandlerForPlugin HeaderHandlerPlugin;
+#endif
 	};
 	union {
 		tTVPGraphicSaveHandler SaveHandler;
+#ifdef _WIN32
 		tTVPGraphicSaveHandlerForPlugin SaveHandlerPlugin;
+#endif
 	};
 	tTVPGraphicAcceptSaveHandler AcceptHandler;
 	void * FormatData;
@@ -366,6 +377,7 @@ struct tTVPGraphicHandlerType
 		FormatData = data;
 	}
 
+#ifdef _WIN32
 	tTVPGraphicHandlerType(const ttstr &ext,
 		tTVPGraphicLoadingHandlerForPlugin loading,
 		tTVPGraphicHeaderLoadingHandlerForPlugin header,
@@ -380,15 +392,18 @@ struct tTVPGraphicHandlerType
 		AcceptHandler = accept;
 		FormatData = data;
 	}
+#endif
 
 	tTVPGraphicHandlerType(const tTVPGraphicHandlerType & ref)
 	{
 		IsPlugin = ref.IsPlugin;
 		if( IsPlugin )
 		{
+#ifdef _WIN32
 			LoadHandlerPlugin = ref.LoadHandlerPlugin;
 			HeaderHandlerPlugin = ref.HeaderHandlerPlugin;
 			SaveHandlerPlugin = ref.SaveHandlerPlugin;
+#endif
 		}
 		else
 		{

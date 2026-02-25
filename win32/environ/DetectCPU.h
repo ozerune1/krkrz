@@ -17,7 +17,7 @@ extern "C"
 }
 
 extern void TVPDetectCPU();
-TJS_EXP_FUNC_DEF(tjs_uint32, TVPGetCPUType, ());
+TJS_EXP_FUNC_DEF_ENV(__WINVER__, tjs_uint32, TVPGetCPUType, ());
 
 //---------------------------------------------------------------------------
 #endif

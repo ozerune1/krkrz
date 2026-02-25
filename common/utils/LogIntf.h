@@ -58,12 +58,12 @@ enum TVPLogLevel {
 // コンパイル時に定義されるログレベル
 #ifndef TVPLOG_LEVEL
 #ifdef MASTER
-#define TVPLOG_LEVEL TVPLOG_LEVEL_INFO
+#define TVPLOG_LEVEL TVPLOG_LEVEL_WARNING
 #else
 #ifdef NDEBUG
-#define TVPLOG_LEVEL TVPLOG_LEVEL_DEBUG
+#define TVPLOG_LEVEL TVPLOG_LEVEL_INFO
 #else
-#define TVPLOG_LEVEL TVPLOG_LEVEL_VEBOSE
+#define TVPLOG_LEVEL TVPLOG_LEVEL_DEBUG
 #endif
 #endif
 #endif

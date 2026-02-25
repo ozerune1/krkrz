@@ -31,7 +31,7 @@
 #include "BitmapIntf.h"
 
 #include "TVPColor.h"
-#ifdef __WIN32__
+#ifdef __WINVER__
 #include "TVPSysFont.h"
 #endif
 #include "FontRasterizer.h"

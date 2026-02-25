@@ -13,7 +13,7 @@
 
 #include "tjsCommHead.h"
 #include "FreeType.h"
-#ifdef __WIN32__
+#ifdef __WINVER__
 #include "NativeFreeTypeFace.h"
 #endif
 #include "uni_cp932.h"
@@ -739,7 +739,7 @@ tFreeTypeFace::tFreeTypeFace(const std::vector<tjs_string> &fontname, tjs_uint32
 		{
 			Faces[i]->Face.reset( FreeTypeFaceList->GetFace( fontname[i], options ) );
 		}
-#ifdef __WIN32__
+#ifdef __WINVER__
 		if( Faces[i]->Face == nullptr )
 		{
 			if( options & TVP_FACE_OPTIONS_FILE )

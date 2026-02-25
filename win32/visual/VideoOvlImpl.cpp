@@ -27,7 +27,7 @@
 
 #include "Application.h"
 #include "TVPVideoOverlay.h"
-#include "BitmapInfomationImpl.h"
+#include "BitmapInfomation.h"
 
 //---------------------------------------------------------------------------
 class tTVPVideoModule
@@ -1067,7 +1067,7 @@ void tTJSNI_VideoOverlay::SetMixingLayer( tTJSNI_BaseLayer *l )
 				tTVPBitmap *bmp = l->GetMainImage()->GetBitmap();
 				if( bmp )
 				{
-					const BitmapInfomationImpl* bmpinfo = (BitmapInfomationImpl*)bmp->GetBitmapInfomation();
+					const BitmapInfomation* bmpinfo = bmp->GetBitmapInfomation();
 
 					// 自前でDCを作る
 					HDC hdc;

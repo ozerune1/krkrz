@@ -320,7 +320,7 @@ bool tRisaPhaseVocoderDSP::GetOutputBuffer(
 //---------------------------------------------------------------------------
 tRisaPhaseVocoderDSP::tStatus tRisaPhaseVocoderDSP::Process()
 {
-#if defined(__WIN32__) && (defined(_M_IX86)||defined(_M_X64))
+#if defined(_WIN32) && (defined(_M_IX86)||defined(_M_X64))
 	bool use_sse =
 			(TVPCPUType & TVP_CPU_HAS_MMX) &&
 			(TVPCPUType & TVP_CPU_HAS_SSE) &&
@@ -385,7 +385,7 @@ tRisaPhaseVocoderDSP::tStatus tRisaPhaseVocoderDSP::Process()
 		InputBuffer.GetReadPointer(FrameSize*Channels, p1, p1len, p2, p2len);
 		p1len /= Channels;
 		p2len /= Channels;
-#if defined(__WIN32__) && (defined(_M_IX86)||defined(_M_X64))
+#if defined(_WIN32) && (defined(_M_IX86)||defined(_M_X64))
 		if( use_sse ) {
 			DeinterleaveApplyingWindow_sse(AnalWork, p1, InputWindow, Channels, 0, p1len);
 			if(p2)
@@ -410,7 +410,7 @@ tRisaPhaseVocoderDSP::tStatus tRisaPhaseVocoderDSP::Process()
 		//------------------------------------------------
 
 		// 演算の根幹部分を実行する
-#if defined(__WIN32__) && (defined(_M_IX86)||defined(_M_X64))
+#if defined(_WIN32) && (defined(_M_IX86)||defined(_M_X64))
 		if(use_sse) ProcessCore_sse(ch);
 		else ProcessCore(ch);
 #else
@@ -426,7 +426,7 @@ tRisaPhaseVocoderDSP::tStatus tRisaPhaseVocoderDSP::Process()
 		OutputBuffer.GetWritePointer(FrameSize*Channels, p1, p1len, p2, p2len);
 		p1len /= Channels;
 		p2len /= Channels;
-#if defined(__WIN32__) && (defined(_M_IX86)||defined(_M_X64))
+#if defined(_WIN32) && (defined(_M_IX86)||defined(_M_X64))
 		if( use_sse ) {
 			InterleaveOverlappingWindow_sse(p1, SynthWork, OutputWindow, Channels, 0, p1len);
 			if(p2)
@@ -697,7 +697,7 @@ void tRisaPhaseVocoderDSP::ProcessCore(int ch)
 */
 
 //---------------------------------------------------------------------------
-#if defined(__WIN32__) && (defined(_M_IX86)||defined(_M_X64))
+#if defined(_WIN32) && (defined(_M_IX86)||defined(_M_X64))
 //---------------------------------------------------------------------------
 void tRisaPhaseVocoderDSP::ProcessCore_sse(int ch)
 {

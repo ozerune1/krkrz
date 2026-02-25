@@ -913,6 +913,13 @@ public:
 		return (tjs_int)AsInteger();
 	}
 
+#ifdef __APPLE__
+	TJS_CONST_METHOD_DEF_ENV(__APPLE__, TJS_METHOD_RET(tjs_intptr_t), operator tjs_intptr_t, ())
+	{
+		return (tjs_intptr_t)AsInteger();
+	}
+#endif
+
 	TJS_CONST_METHOD_DEF(tTVReal, AsReal, ())
 	{
 		TJSSetFPUE();
@@ -961,6 +968,9 @@ public:
 	TJS_METHOD_DEF(tTJSVariant &, operator =, (tjs_int32 ref));
 	TJS_METHOD_DEF(tTJSVariant &, operator =, (const tTVInteger ref)); // from Integer64
 	TJS_METHOD_DEF(tTJSVariant &, operator =, (tjs_real ref)); // from double
+#ifdef __APPLE__
+	TJS_METHOD_DEF_ENV(__APPLE__, tTJSVariant &, operator =, (tjs_intptr_t ref));
+#endif
 
 	//---- operators --------------------------------------------------------
 

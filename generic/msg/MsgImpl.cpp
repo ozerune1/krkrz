@@ -15,14 +15,13 @@
 #include "Application.h"
 #include "CharacterSet.h"
 #include "StorageIntf.h"
+#include "PluginImpl.h"
 
 #define TVP_MSG_DECL(name, msg) tTJSMessageHolder name(TJS_W(#name), msg);
 #define TVP_MSG_DECL_CONST(name, msg) tTJSMessageHolder name(TJS_W(#name), msg, false);
 #define TVP_MSG_DECL_NULL(name) tTJSMessageHolder name(TJS_W(#name), TJS_W("msg:" #name), false);
 #include "MsgImpl.h"
 
-
-extern void TVPGetFileVersionOf( tjs_int& major, tjs_int& minor, tjs_int& release, tjs_int& build );
 //---------------------------------------------------------------------------
 // version retrieving
 //---------------------------------------------------------------------------
@@ -38,7 +37,7 @@ void TVPGetVersion(void)
 		TVPVersionRelease = 0;
 		TVPVersionBuild = 0;
 
-		TVPGetFileVersionOf( TVPVersionMajor, TVPVersionMinor, TVPVersionRelease, TVPVersionBuild);
+		TVPGetFileVersionOf( TJS_W(""), TVPVersionMajor, TVPVersionMinor, TVPVersionRelease, TVPVersionBuild);
 	}
 }
 

@@ -221,7 +221,7 @@ int APIENTRY wWinMain( _In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstanc
 
 		// ログレベル設定
 #ifdef MASTER
-		TVPLogInit(TVPLOG_LEVEL_INFO);
+		TVPLogInit(TVPLOG_LEVEL_WARNING);
 #else
 		{
 #ifdef NDEBUG
@@ -229,7 +229,7 @@ int APIENTRY wWinMain( _In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstanc
 #else
 	        TVPLogLevel logLevel = TVPLOG_LEVEL_DEBUG;
 #endif
-			const char* logLevelArg = "--loglevel=";
+			const char* logLevelArg = "-loglevel=";
 			for (int i = 1; i < __argc; i++) {
 				char argStr[256];
 				WideCharToMultiByte(CP_UTF8, 0, __wargv[i], -1, argStr, sizeof(argStr), NULL, NULL);

@@ -12,7 +12,7 @@
 #include "ComplexRect.h"
 #include "EventIntf.h"
 #include "WindowImpl.h"
-#include "BitmapInfomationImpl.h"
+#include "BitmapInfomation.h"
 
 #include <d3d9.h>
 #include <mmsystem.h>
@@ -640,12 +640,12 @@ void TJS_INTF_METHOD tTVPBasicDrawDevice::StartBitmapCompletion(iTVPLayerManager
 }
 //---------------------------------------------------------------------------
 void TJS_INTF_METHOD tTVPBasicDrawDevice::NotifyBitmapCompleted(iTVPLayerManager * manager,
-	tjs_int x, tjs_int y, const void * bits, const class BitmapInfomation * bmpinfo,
+	tjs_int x, tjs_int y, const void * bits, const BITMAPINFO * bmpinfo,
 	const tTVPRect &cliprect, tTVPLayerType type, tjs_int opacity)
 {
-	int _width  = bmpinfo->GetWidth();
-	int _height = bmpinfo->GetHeight(); 
-	int _pitch  = bmpinfo->GetPitchBytes();
+	int _width  = bmpinfo->bmiHeader.biWidth;
+	int _height = bmpinfo->bmiHeader.biHeight;
+	int _pitch  = bmpinfo->bmiHeader.biSizeImage / _height;
 
 	// bits, bitmapinfo で表されるビットマップの cliprect の領域を、x, y に描画
 	// する。

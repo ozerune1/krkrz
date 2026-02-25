@@ -23,9 +23,9 @@ extern void __stdcall GetMFVideoOverlayObject(
 typedef void* (*tTVPCreateDSFilter)( void* formatdata );
 /*]*/
 
-TJS_EXP_FUNC_DEF( void, TVPRegisterDSVideoCodec, ( const ttstr & name, void* guid, tTVPCreateDSFilter splitter,
+TJS_EXP_FUNC_DEF_ENV(__WINVER__, void, TVPRegisterDSVideoCodec, ( const ttstr & name, void* guid, tTVPCreateDSFilter splitter,
 	tTVPCreateDSFilter video, tTVPCreateDSFilter audio, void* formatdata ) );
-TJS_EXP_FUNC_DEF( void, TVPUnregisterDSVideoCodec, (const ttstr & name, void* guid, tTVPCreateDSFilter splitter,
+TJS_EXP_FUNC_DEF_ENV(__WINVER__, void, TVPUnregisterDSVideoCodec, (const ttstr & name, void* guid, tTVPCreateDSFilter splitter,
 	tTVPCreateDSFilter video, tTVPCreateDSFilter audio, void* formatdata ) );
 
 // 一気に登録する形になっているけど、拡張子とそのフォーマットのGUID

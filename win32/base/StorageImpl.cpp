@@ -1024,7 +1024,12 @@ void TJS_INTF_METHOD tTVPBinaryStreamAdapter::SetEndOfStorage()
 //---------------------------------------------------------------------------
 // TVPCreateBinaryStreamAdapter
 //---------------------------------------------------------------------------
-iTJSBinaryStream * TVPCreateBinaryStreamAdapter(IStream *refstream)
+iTJSBinaryStream * TVPCreateBinaryStreamAdapterNew(IStream *refstream)
+{
+	return new  tTVPBinaryStreamAdapter(refstream);
+}
+//---------------------------------------------------------------------------
+tTJSBinaryStream * TVPCreateBinaryStreamAdapter(IStream *refstream)
 {
 	return new  tTVPBinaryStreamAdapter(refstream);
 }

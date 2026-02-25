@@ -22,14 +22,14 @@
 #define NOMINMAX 
 #include "targetver.h"
 #include <windows.h>
-
-#include <vector>
+#include <objidl.h> // for IStream
+#include <wchar.h> // for wchar_t
 
 #ifdef  _DEBUG
-#define _CRTDBG_MAP_ALLOC
-#include <cstdlib>
-#include <crtdbg.h>
-#define TJS_CRTDBG_MAP_ALLOC
+//#define _CRTDBG_MAP_ALLOC
+//#include <cstdlib>
+//#include <crtdbg.h>
+//#define TJS_CRTDBG_MAP_ALLOC
 #endif  // _DEBUG
 
 /*
@@ -43,14 +43,16 @@
 #define new DEBUG_NEW
 */
 
-#endif
+#define STDCALL __stdcall
 
+#else
+
+#define STDCALL
+typedef void* HWND;
+
+#endif
 
 #include <string.h>
-#ifndef __USE_UNIX98
-#define __USE_UNIX98
-#endif
-#include <wchar.h>
 #include <stdlib.h>
 #include <stdio.h>
 

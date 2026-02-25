@@ -49,6 +49,55 @@
 #pragma comment(lib, "version")
 
 //---------------------------------------------------------------------------
+// Static plugin support
+//---------------------------------------------------------------------------
+
+static std::vector<const iTVPStaticPlugin*> TVPStaticPlugins;
+
+extern "C" void TVPRegisterPlugin(const iTVPStaticPlugin* plugin)
+{
+    if(plugin) {
+        TVPStaticPlugins.push_back(plugin);
+    }
+}
+
+static const iTVPStaticPlugin* TVPFindStaticPlugin(const ttstr& name)
+{
+    // Extract base name without path and extension for matching
+    ttstr basename = name;
+    // Remove path
+    tjs_int pos = basename.GetLen() - 1;
+    while(pos >= 0) {
+        tjs_char c = basename[pos];
+        if(c == TJS_W('/') || c == TJS_W('\\')) {
+            basename = ttstr(basename.c_str() + pos + 1);
+            break;
+        }
+        pos--;
+    }
+    // Remove extension
+    pos = basename.GetLen() - 1;
+    while(pos >= 0) {
+        if(basename[pos] == TJS_W('.')) {
+            basename = ttstr(basename.c_str(), pos);
+            break;
+        }
+        pos--;
+    }
+    
+    for(const auto* plugin : TVPStaticPlugins) {
+        if(plugin && plugin->name) {
+            ttstr pluginName(plugin->name);
+            if(pluginName == basename || pluginName == name) {
+                return plugin;
+            }
+        }
+    }
+    return nullptr;
+}
+//---------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------
 // export table
 //---------------------------------------------------------------------------
 static tTJSHashTable<ttstr, void *> TVPExportFuncs;
@@ -276,6 +325,19 @@ tTVPPlugin::tTVPPlugin(const ttstr & name, ITSSStorageProvider *storageprovider)
 	GetKMPModule = NULL;
 #endif
 
+	// First, try to find a statically registered plugin
+	const iTVPStaticPlugin* staticPlugin = TVPFindStaticPlugin(name);
+	if(staticPlugin) {
+		V2Link   = (tTVPV2LinkProc)staticPlugin->link;
+		V2Unlink = (tTVPV2UnlinkProc)staticPlugin->unlink;
+		
+		// link
+		if(V2Link) {
+			V2Link(TVPGetFunctionExporter());
+		}
+		return;
+	}
+
 	// load DLL
 	Holder = new tTVPPluginHolder(name);
 	Instance = LoadLibrary((const wchar_t*)Holder->GetLocalName().AsStdString().c_str());
@@ -399,8 +461,8 @@ bool tTVPPlugin::Uninit()
 	if(TSSModule) TSSModule->Release();
 	if(IsSusiePicturePlugin) TVPUnloadPictureSPI(Instance);
 	if(IsSusieArchivePlugin) TVPUnloadArchiveSPI(Instance);
-	FreeLibrary(Instance);
-	delete Holder;
+	if (Instance) FreeLibrary(Instance);
+	if (Holder) 	delete Holder;
 	return true;
 }
 //---------------------------------------------------------------------------

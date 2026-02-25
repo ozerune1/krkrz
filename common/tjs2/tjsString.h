@@ -18,28 +18,13 @@
 #endif
 #include "tjsVariantString.h"
 
-#if defined (__clang__) && (defined(ANDROID) || defined(NINTENDO))
 template<typename T>
 tjs_string to_format_str( T value, const tjs_char* format ) {
     tjs_char buff[128];
 	TJS_snprintf( buff, 128, format, value);
 	return tjs_string(buff);
 }
-#else
-#include <sstream>
-template<typename T>
-tjs_string to_format_str( T value, const tjs_char* format ) {
-#if 0
-	tjs_char buff[128];
-	TJS_snprintf( buff, 128, format, value);
-	return tjs_string(buff);
-#else
-	std::basic_ostringstream<tjs_char> sout;
-	sout << value;
-	return sout.str();
-#endif
-}
-#endif
+
 inline tjs_string to_tjs_string( int value ) { return to_format_str( value, TJS_W("%d") ); }
 inline tjs_string to_tjs_string( long value ) { return to_format_str( value, TJS_W("%ld") ); }
 inline tjs_string to_tjs_string( long long value ) { return to_format_str( value, TJS_W("%lld") ); }
@@ -98,9 +83,7 @@ public:
 	TJS_METHOD_DEF(TJS_METHOD_RET_EMPTY, tTJSString, (tTJSVariantString *vstr))   { Ptr = vstr; if(Ptr) Ptr->AddRef(); }
 	TJS_METHOD_DEF(TJS_METHOD_RET_EMPTY, tTJSString, (const tjs_char *str)) { Ptr = TJSAllocVariantString(str); }
 	TJS_METHOD_DEF(TJS_METHOD_RET_EMPTY, tTJSString, (const tjs_nchar *str)) { Ptr = TJSAllocVariantString(str); }
-#ifdef _WIN32
-	TJS_METHOD_DEF(TJS_METHOD_RET_EMPTY, tTJSString, (const wchar_t *str)) { Ptr = TJSAllocVariantString((const tjs_char*)str); }
-#endif
+	TJS_METHOD_DEF_ENV(_WIN32, TJS_METHOD_RET_EMPTY, tTJSString, (const wchar_t *str)) { Ptr = TJSAllocVariantString((const tjs_char*)str); }
 	TJS_METHOD_DEF(TJS_METHOD_RET_EMPTY, tTJSString, (const tTJSStringBufferLength len))
 		{ Ptr = TJSAllocVariantStringBuffer(len.n); }
 	TJS_METHOD_DEF(TJS_METHOD_RET_EMPTY, tTJSString, (tjs_char rch))
@@ -207,8 +190,8 @@ public:
 		return *this;
 	}
 
-#ifdef _WIN32
-	TJS_METHOD_DEF(tTJSString &, operator =, (const wchar_t * rhs))
+#if _WIN32
+	TJS_METHOD_DEF_ENV(_WIN32, tTJSString &, operator =, (const wchar_t * rhs))
 	{
 		if(Ptr)
 		{

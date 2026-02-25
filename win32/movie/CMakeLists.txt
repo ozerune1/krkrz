@@ -57,12 +57,18 @@ target_compile_definitions( baseclasses PRIVATE
 )
 
 # ----------------------------------------------------
+# webp movieplayer (for layer)
+# ----------------------------------------------------
+
+add_subdirectory( ../../external/movie-player movie-player)
+
+# ----------------------------------------------------
 # krmovie plugin
 # ----------------------------------------------------
 
 add_library( krmovie SHARED
-    ../../win32/tp_stub.h
-    ../../win32/tp_stub.cpp
+    ../../common/tp_stub.h
+    ../../common/tp_stub.cpp
     asyncio.cpp
     asyncrdr.cpp
     BufferRenderer.cpp
@@ -89,12 +95,15 @@ add_library( krmovie SHARED
     IRendererBufferVideo_i.c
     resource.h
     krmovie.rc
+    webplayer.cpp
 )
 
 target_include_directories( krmovie PRIVATE 
+    ../../common/
     ../
     ../visual
     ../vcproj
+    ../../external/movie-player/extlibs/libyuv/include
 )
 
 target_compile_definitions( krmovie PRIVATE
@@ -107,4 +116,5 @@ target_compile_definitions( krmovie PRIVATE
 
 target_link_libraries( krmovie PUBLIC
 	baseclasses
+    movieplayer
 )

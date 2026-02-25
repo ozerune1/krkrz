@@ -30,29 +30,12 @@
 #include "StorageImpl.h"
 #include "StorageCache.h"
 #include "StorageIntf.h"
+#include "ScriptMgnIntf.h"
 
 #include <picojson/picojson.h>
 #include <algorithm>
 
-static const tjs_int TVP_VERSION_MAJOR = 1;
-static const tjs_int TVP_VERSION_MINOR = 0;
-static const tjs_int TVP_VERSION_RELEASE = 0;
-static const tjs_int TVP_VERSION_BUILD = 1;
-
 tTVPApplication* Application;
-
-/**
- * Android 版のバージョン番号はソースコードに埋め込む
- * パッケージのバージョン番号はアプリのバージョンであって、エンジンのバージョンではないため
- * apk からバージョン番号を取得するのは好ましくない。
- */
-void TVPGetFileVersionOf( tjs_int& major, tjs_int& minor, tjs_int& release, tjs_int& build ) {
-	major = TVP_VERSION_MAJOR;
-	minor = TVP_VERSION_MINOR;
-	release = TVP_VERSION_RELEASE;
-	build = TVP_VERSION_BUILD;
-}
-
 
 /**
  * コンストラクタ
@@ -224,6 +207,9 @@ bool tTVPApplication::InitializeApplication()
 		// システム初期化
 		TVPSystemInit();
 
+		// スクリプトエンジン取得
+		OnInitialize(TVPGetScriptEngine());
+
 		SetTitle( tjs_string(TVPKirikiri) );
 
 #ifndef TVP_IGNORE_LOAD_TPM_PLUGIN
@@ -338,7 +324,9 @@ tTVPApplication::Dispatch()
 		UpdateVideoOverlay();
 
 		// 吉里吉里イベント配信実行
-		DeliverEvents();
+		if(!TVPSystemUninitCalled) {
+			DeliverEvents();
+		}
 
 	} catch( const EAbort & ) {
 		// nothing to do
@@ -355,13 +343,17 @@ tTVPApplication::Dispatch()
 		if(!TVPSystemUninitCalled)
 			ShowException( e.GetMessage().c_str() );
 	} catch( const std::exception &e ) {
-		ShowException( ttstr(e.what()).c_str() );
+		if(!TVPSystemUninitCalled)
+			ShowException( ttstr(e.what()).c_str() );
 	} catch( const char* e ) {
-		ShowException( ttstr(e).c_str() );
+		if(!TVPSystemUninitCalled)
+			ShowException( ttstr(e).c_str() );
 	} catch( const tjs_char* e ) {
-		ShowException( e );
+		if(!TVPSystemUninitCalled)
+			ShowException( e );
 	} catch(...) {
-		ShowException( (const tjs_char*)TVPUnknownError );
+		if(!TVPSystemUninitCalled)
+			ShowException( (const tjs_char*)TVPUnknownError );
 	}
 
 }
@@ -479,11 +471,7 @@ bool tTVPApplication::CacheIsLoading(bool fast) const
 tTJSNativeClass* 
 tTVPApplication::GetDefaultDrawDevice()
 {
-	static tTJSNativeClass* draw_device = nullptr;
-	if (!draw_device) {
-		draw_device = new tTJSNC_NullDrawDevice();
-	}
-	return draw_device;
+	return new tTJSNC_NullDrawDevice();
 }
 
 class BasicAllocator : public iTVPMemoryAllocator

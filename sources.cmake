@@ -91,13 +91,9 @@ common/msg/MsgIntf.cpp
 common/sound/MathAlgorithms.cpp
 common/sound/PhaseVocoderDSP.cpp
 common/sound/PhaseVocoderFilter.cpp
-common/sound/QueueSoundBufferImpl.cpp
 common/sound/RealFFT.cpp
 common/sound/SoundBufferBaseIntf.cpp
 common/sound/SoundBufferBaseImpl.cpp
-common/sound/SoundDecodeThread.cpp
-common/sound/SoundEventThread.cpp
-common/sound/SoundPlayer.cpp
 common/sound/WaveFormatConverter.cpp
 common/sound/WaveIntf.cpp
 common/sound/WaveLoopManager.cpp
@@ -118,6 +114,7 @@ common/utils/uni_cp932.cpp
 common/utils/VelocityTracker.cpp
 common/visual/BitmapIntf.cpp
 common/visual/BitmapLayerTreeOwner.cpp
+common/visual/BitmapInfomation.cpp
 common/visual/CharacterData.cpp
 common/visual/ComplexRect.cpp
 common/visual/DrawDevice.cpp
@@ -149,6 +146,7 @@ common/visual/KeyRepeat.cpp
 common/visual/gl/blend_function.cpp
 common/visual/gl/ResampleImage.cpp
 common/visual/gl/WeightFunctor.cpp
+common/base/FuncStubs.cpp
 )
 
 if (USE_OPENGL)
@@ -196,7 +194,6 @@ win32/environ/WindowFormUnit.cpp
 win32/environ/WindowsUtil.cpp
 win32/base/EventImpl.cpp
 win32/base/FileSelector.cpp
-win32/base/FuncStubs.cpp
 win32/base/NativeEventQueue.cpp
 win32/base/PluginImpl.cpp
 win32/base/SusieArchive.cpp
@@ -213,7 +210,6 @@ win32/utils/ClipboardImpl.cpp
 win32/utils/ThreadImpl.cpp
 win32/visual/BasicDrawDevice.cpp
 win32/visual/BitmapBitsAlloc.cpp
-win32/visual/BitmapInfomationImpl.cpp
 win32/visual/DInputMgn.cpp
 win32/visual/DrawDeviceImpl.cpp
 win32/visual/GDIFontRasterizer.cpp
@@ -233,7 +229,6 @@ common/utils/TickCount.cpp
 win32/utils/TickCountImpl.cpp
 
 common/base/FileAllocator.cpp
-common/sound/AudioStream.cpp
 generic/utils/LogImpl.cpp
 
 win32/vcproj/tvpwin32.rc
@@ -296,9 +291,11 @@ generic/visual
 )
 
 set( KRKRZ_SRC_GENERIC
+common/sound/SoundDecodeThread.cpp
+common/sound/SoundEventThread.cpp
+common/sound/QueueSoundBufferImpl.cpp
 generic/base/DrawDeviceImpl.cpp
 generic/base/EventImpl.cpp
-generic/base/FuncStubs.cpp
 generic/base/NativeEventQueue.cpp
 generic/base/PluginImpl.cpp
 generic/base/ScriptMgnImpl.cpp
@@ -316,7 +313,6 @@ generic/visual/BitmapBitsAlloc.cpp
 generic/visual/LayerImpl.cpp
 generic/visual/VideoOvlImpl.cpp
 generic/visual/WindowImpl.cpp
-generic/visual/BitmapInfomationImpl.cpp
 )
 
 set(KRKRZ_PUBLIC_HEADER 
@@ -338,3 +334,98 @@ if (WIN32)
 	endif()
 endif()
 
+set(KRKRZ_SRC_SDL3
+	sdl3/base/FileImpl.cpp
+	sdl3/base/SDL3KirikiriIOStream.cpp
+	sdl3/base/SDL3KirikiriIOStream.h
+	sdl3/base/SDL3KirikiriStorage.cpp
+	sdl3/base/SDL3KirikiriStorage.h
+	sdl3/base/storage.cpp
+	sdl3/environ/app.cpp
+	sdl3/environ/app.h
+	sdl3/environ/form.cpp
+#	sdl3/environ/joystick.cpp
+	sdl3/environ/key.cpp
+	sdl3/environ/main.cpp
+	sdl3/environ/pad.cpp
+	sdl3/utils/LogImpl.cpp
+	sdl3/utils/TickCount.cpp
+	sdl3/visual/SDLDrawDevice.cpp
+	sdl3/visual/SDLDrawDevice.h
+	sdl3/visual/SDLTextureUpdateRect.h
+)
+
+set(KRKRZ_INC_SDL3
+	sdl3/base
+	sdl3/environ
+	sdl3/utils
+	sdl3/visual
+)
+
+set(KRKRZ_LIB_SDL3
+	SDL3::SDL3
+)
+
+# 常に miniaudio を使用
+list(APPEND KRKRZ_SRC_SDL3
+	common/sound/MiniAudioEngine.cpp
+	sdl3/sound/audio.cpp
+)
+
+list(APPEND KRKRZ_SRC_WIN32
+	common/sound/MiniAudioEngine.cpp
+)
+
+if (BUILD_SDL)
+	list(APPEND KRKRZ_DEFINES
+		# miniaudio dont use device io (SDL3 handles device I/O)
+		MA_NO_DEVICE_IO
+	)
+endif()
+
+
+if (SDL3_SPLASHWINDOW)
+	list(APPEND KRKRZ_SRC_SDL3
+		sdl3/environ/app_splash.cpp
+	)
+	list(APPEND KRKRZ_DEFINES
+		USE_SPLASHWINDOW
+	)
+	list(APPEND KRKRZ_LIB_SDL3
+		SDL3_image::SDL3_image
+	)
+endif()
+
+if(WIN32)
+	list(APPEND KRKRZ_SRC_SDL3
+		sdl3/environ/stdapp.cpp
+		common/base/FileAllocator.cpp
+		generic/app/movie.cpp
+		generic/app/winres.cpp
+		win32/utils/ThreadImpl.cpp
+	)
+elseif(APPLE)
+	list(APPEND KRKRZ_SRC_SDL3
+		sdl3/environ/stdapp.cpp
+		common/base/FileAllocator.cpp
+		generic/app/movie.cpp
+		sdl3/base/resource.cpp
+		sdl3/utils/ThreadImpl.cpp
+	)
+elseif(ANDROID)
+	list(APPEND KRKRZ_SRC_SDL3
+		sdl3/environ/stdapp.cpp
+		common/base/FileAllocator.cpp
+		generic/app/movie.cpp
+		generic/app/andres.cpp
+		sdl3/utils/ThreadImpl.cpp
+	)
+elseif(LINUX)
+	list(APPEND KRKRZ_SRC_SDL3
+		sdl3/environ/stdapp.cpp
+		common/base/FileAllocator.cpp
+		generic/app/movie.cpp
+		generic/app/objres.cpp
+		sdl3/utils/ThreadImpl.cpp
+	)
+endif()

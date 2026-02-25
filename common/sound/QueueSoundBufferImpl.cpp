@@ -25,11 +25,100 @@
 #include "Application.h"
 #include "UserEvent.h"
 #include "NativeEventQueue.h"
+#include "LogIntf.h"
 
 #include "SoundEventThread.h"
 #include "SoundDecodeThread.h"
 #include <algorithm>
 #include "SoundSamples.h"
+
+// miniaudio
+#include "miniaudio.h"
+
+static const int VOLUME_MAX = 100000;
+
+//---------------------------------------------------------------------------
+// miniaudio データソース構造体
+//---------------------------------------------------------------------------
+struct tTVPMiniAudioContext {
+	ma_data_source_base DataSourceBase;
+	ma_sound Sound;
+	tTJSNI_QueueSoundBuffer* Owner;
+	
+	ma_format Format;
+	ma_uint32 Channels;
+	ma_uint32 SampleRate;
+	ma_uint32 FrameSize;
+	
+	tjs_int VolumeValue;
+	tjs_int PanValue;
+	tjs_int FrequencyValue;
+	
+	bool SoundEnded;
+	
+	// 読み取り位置管理（バイト単位）
+	size_t CurrentReadOffset;
+	
+	tTVPMiniAudioContext() : Owner(nullptr), VolumeValue(VOLUME_MAX), 
+		PanValue(0), FrequencyValue(0), SoundEnded(false), CurrentReadOffset(0) {}
+};
+
+// miniaudio データソース vtable
+static ma_result ma_data_source_read_proc(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
+static ma_result ma_data_source_seek_proc(ma_data_source* pDataSource, ma_uint64 frameIndex);
+static ma_result ma_data_source_get_data_format_proc(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
+static ma_result ma_data_source_get_cursor_proc(ma_data_source* pDataSource, ma_uint64* pCursor);
+static ma_result ma_data_source_get_length_proc(ma_data_source* pDataSource, ma_uint64* pLength);
+
+static ma_data_source_vtable g_data_source_vtable = {
+	ma_data_source_read_proc,
+	ma_data_source_seek_proc,
+	ma_data_source_get_data_format_proc,
+	ma_data_source_get_cursor_proc,
+	ma_data_source_get_length_proc,
+	NULL,
+	MA_DATA_SOURCE_SELF_MANAGED_RANGE_AND_LOOP_POINT
+};
+
+static ma_result ma_data_source_read_proc(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+	tTVPMiniAudioContext* ctx = (tTVPMiniAudioContext*)pDataSource;
+	if (ctx && ctx->Owner) {
+		int framesRead = ctx->Owner->ReadAudioData(pFramesOut, (int)frameCount);
+		if (pFramesRead) {
+			*pFramesRead = framesRead;
+		}
+		return (framesRead == 0) ? MA_AT_END : MA_SUCCESS;
+	}
+	if (pFramesRead) *pFramesRead = 0;
+	return MA_AT_END;
+}
+
+static ma_result ma_data_source_seek_proc(ma_data_source* pDataSource, ma_uint64 frameIndex)
+{
+	return MA_NOT_IMPLEMENTED;
+}
+
+static ma_result ma_data_source_get_data_format_proc(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
+{
+	tTVPMiniAudioContext* ctx = (tTVPMiniAudioContext*)pDataSource;
+	if (pFormat) *pFormat = ctx->Format;
+	if (pChannels) *pChannels = ctx->Channels;
+	if (pSampleRate) *pSampleRate = ctx->SampleRate;
+	return MA_SUCCESS;
+}
+
+static ma_result ma_data_source_get_cursor_proc(ma_data_source* pDataSource, ma_uint64* pCursor)
+{
+	if (pCursor) *pCursor = 0;
+	return MA_NOT_IMPLEMENTED;
+}
+
+static ma_result ma_data_source_get_length_proc(ma_data_source* pDataSource, ma_uint64* pLength)
+{
+	if (pLength) *pLength = 0;
+	return MA_NOT_IMPLEMENTED;
+}
 
 //---------------------------------------------------------------------------
 // static function for TJS WaveSoundBuffer class
@@ -67,11 +156,6 @@ static tTVPAtExit TVPShutdownWaveSoundBuffersAtExit( TVP_ATEXIT_PRI_PREPARE, TVP
 // tTJSNI_QueueSoundBuffer
 //---------------------------------------------------------------------------
 
-// プラグイン有効化用。sound/win32 に実装あり
-#ifdef __WIN32__
-extern void TVPRegisterTSSWaveDecoderCreator();
-#endif
-
 // miniaudio.cpp
 extern tjs_int TVPSoundFrequency;
 
@@ -98,13 +182,10 @@ void TVPInitSoundOptions()
 }
 
 //---------------------------------------------------------------------------
-tTJSNI_QueueSoundBuffer::tTJSNI_QueueSoundBuffer() : Player(this)
+tTJSNI_QueueSoundBuffer::tTJSNI_QueueSoundBuffer() : Paused(false)
 {
 	TVPInitSoundOptions();
-// プラグイン有効化用。sound/win32 に実装あり
-#ifdef __WIN32__
-	TVPRegisterTSSWaveDecoderCreator();
-#endif
+	AudioContext = nullptr;
 	Decoder = nullptr;
 	LoopManager = nullptr;
 	Thread = nullptr;
@@ -160,7 +241,6 @@ void tTJSNI_QueueSoundBuffer::ReleaseSoundBuffer( bool disableevent ) {
 }
 //---------------------------------------------------------------------------
 void tTJSNI_QueueSoundBuffer::DestroySoundBuffer() {
-	Player.Destroy();
 
 	BufferPlaying = false;
 
@@ -170,6 +250,86 @@ void tTJSNI_QueueSoundBuffer::DestroySoundBuffer() {
 		if( Buffer[i] ) delete Buffer[i];
 		Buffer[i] = nullptr;
 	}
+	Samples.clear();
+}
+//---------------------------------------------------------------------------
+bool tTJSNI_QueueSoundBuffer::IsPlaying() {
+	return AudioContext && ma_sound_is_playing(&AudioContext->Sound);
+}
+//---------------------------------------------------------------------------
+tjs_int64 tTJSNI_QueueSoundBuffer::GetCurrentPlayingPosition() {
+	tjs_int64 result = -1;
+	if( AudioContext ) {
+		tTJSCriticalSectionHolder holder(BufferCS);
+		tjs_uint64 engineRate = TVPGetMiniAudioSampleRate();
+		tjs_uint64 pos = ma_sound_get_time_in_pcm_frames(&AudioContext->Sound) * AudioContext->SampleRate / engineRate;
+		if( Samples.size() > 0 ) {
+			auto itr = Samples.begin();
+			tTVPSoundSamplesBuffer* sample = *itr;
+			tjs_uint count = sample->GetSamplesCount();
+			tjs_int offset = (tjs_int)( pos % count );
+			result = sample->GetDecodePosition() + offset;
+		}
+	}
+	return result;
+}
+//---------------------------------------------------------------------------
+int tTJSNI_QueueSoundBuffer::ReadAudioData(void* pFramesOut, int frameCount) {
+	// miniaudio から呼ばれる: Samples キューからデータを読み取る
+	if (!AudioContext || !pFramesOut || frameCount <= 0) {
+		return 0;
+	}
+	
+	tTJSCriticalSectionHolder holder(BufferCS);
+	
+	tjs_uint8* dest = (tjs_uint8*)pFramesOut;
+	tjs_uint frameSize = AudioContext->FrameSize;
+	int framesRead = 0;
+	
+	while (framesRead < frameCount) {
+		// Samples キューが空か確認
+		if (Samples.empty()) {
+			// データがなければ終了
+			break;
+		}
+		
+		tTVPSoundSamplesBuffer* buffer = Samples.front();
+		tjs_uint bufferBytes = buffer->GetBufferSize();
+		const tjs_uint8* src = buffer->GetBuffer();
+		
+		// 現在のバッファで読める残りバイト数
+		size_t remainingInBuffer = bufferBytes - AudioContext->CurrentReadOffset;
+		
+		// 要求されている残りフレームをバイト数に変換
+		int remainingFrames = frameCount - framesRead;
+		size_t bytesNeeded = remainingFrames * frameSize;
+		
+		// 実際にコピーするバイト数
+		size_t bytesToCopy = (bytesNeeded < remainingInBuffer) ? bytesNeeded : remainingInBuffer;
+		
+		// データコピー
+		memcpy(dest, src + AudioContext->CurrentReadOffset, bytesToCopy);
+		dest += bytesToCopy;
+		AudioContext->CurrentReadOffset += bytesToCopy;
+		framesRead += (int)(bytesToCopy / frameSize);
+		
+		// バッファを使い切った場合
+		if (AudioContext->CurrentReadOffset >= bufferBytes) {
+			AudioContext->CurrentReadOffset = 0;
+			
+			// 使い終わったバッファを解放
+			bool wasEnded = buffer->IsEnded();
+			ReleasePlayedSample(buffer);
+			
+			// 終端バッファだった場合
+			if (wasEnded) {
+				AudioContext->SoundEnded = true;
+				break;
+			}
+		}
+	}
+	
+	return framesRead;
 }
 //---------------------------------------------------------------------------
 void tTJSNI_QueueSoundBuffer::ResetSamplePositions() {
@@ -190,7 +350,8 @@ void tTJSNI_QueueSoundBuffer::Clear()
 	ClearFilterChain();
 	if(Decoder) delete Decoder, Decoder = nullptr;
 	BufferPlaying = false;
-	Player.Clear();
+
+	Paused = false;
 
 	ResetSamplePositions();
 
@@ -210,16 +371,20 @@ tjs_uint tTJSNI_QueueSoundBuffer::Decode( void *buffer, tjs_uint bufsamplelen, t
 	return w;
 }
 //---------------------------------------------------------------------------
-void tTJSNI_QueueSoundBuffer::PushPlayStream( tTVPSoundSamplesBuffer* buffer ) {
+void tTJSNI_QueueSoundBuffer::PushPlaySample( tTVPSoundSamplesBuffer* buffer ) {
+
 	if( !BufferPlaying ) return;
+
+	tTJSCriticalSectionHolder holder(BufferCS);
 
 	ResetLastCheckedDecodePos();
 
-	// push play stream
-	Player.PushSamplesBuffer( buffer );
+	// Samples キューに追加（miniaudio が ReadAudioData で読み出す）
+	Samples.push_back(buffer);
+
 #if 0
 	tjs_int64 pos = buffer->GetDecodePosition();
-	tjs_int64 ppos = Player.GetCurrentPlayingPosition();
+	tjs_int64 ppos = GetCurrentPlayingPosition();
 	TVPAddLog( TJS_W( "Sample Pos : " ) + ttstr( (tjs_int)ppos ) + TJS_W( "/" ) + ttstr( (tjs_int)pos ) );
 #endif
 
@@ -240,13 +405,47 @@ void tTJSNI_QueueSoundBuffer::PushPlayStream( tTVPSoundSamplesBuffer* buffer ) {
 	}
 }
 //---------------------------------------------------------------------------
+void tTJSNI_QueueSoundBuffer::ReleasePlayedSample(tTVPSoundSamplesBuffer* buffer) {
+
+	{
+		tTJSCriticalSectionHolder holder(BufferCS);
+		if (Samples.size() > 0) {
+			auto itr = std::find(Samples.begin(), Samples.end(), buffer);
+			if (itr != Samples.end()) {
+				Samples.erase(itr);
+			}
+		}
+	}
+	// 再生が終了したバッファ。まだ再生するのなら Decoder へ入れる
+	if (!buffer->IsEnded()) {
+		if(Thread) Thread->PushSamplesBuffer( buffer );
+	}
+}
+
+//---------------------------------------------------------------------------
 void tTJSNI_QueueSoundBuffer::Update() {
 	tTJSCriticalSectionHolder holder(BufferCS);
 	if(!Decoder) return;
 	if(!BufferPlaying) return;
 
-	bool continued = Player.Update();
-	if( continued == false ) {
+	bool continued = true;
+	if (AudioContext) {
+		if( Paused ) {
+			if( ma_sound_is_playing(&AudioContext->Sound) ) {
+				ma_sound_stop(&AudioContext->Sound);
+			}
+		} else {
+			if( !ma_sound_is_playing(&AudioContext->Sound) && !AudioContext->SoundEnded ) {
+				ma_sound_start(&AudioContext->Sound);
+			}
+		}
+		if (AudioContext->SoundEnded) {
+			continued = false;
+		}
+	} else {
+		continued = false;
+	}
+	if (!continued) {
 		FlushAllLabelEvents();
 		ResetSamplePositions();
 		BufferPlaying = false;
@@ -254,33 +453,13 @@ void tTJSNI_QueueSoundBuffer::Update() {
 	}
 }
 //---------------------------------------------------------------------------
-void tTJSNI_QueueSoundBuffer::CreateSoundBuffer() {
-	// ensure Audio Device object
-	TVPInitSoundOptions();
-
-	if( !Player.IsSameFormat( InputFormat ) ) {
-		for( tjs_uint i = 0; i < BufferCount; i++ ) {
-			if( Buffer[i] == nullptr ) {
-				Buffer[i] = new tTVPSoundSamplesBuffer( this, i );
-			}
-			Buffer[i]->Create( &InputFormat, UseVisBuffer );
-		}
-	}
-	Player.CreateStream( InputFormat, Buffer[0]->GetSamplesCount() );
-
-	// reset volume, sound position and frequency
-	SetVolumeToStream();
-	SetFrequencyToStream();
-}
-//---------------------------------------------------------------------------
 void tTJSNI_QueueSoundBuffer::ResetLastCheckedDecodePos() {
-	if( !Player.HasStream() ) return;
-
+	if( !AudioContext ) return;
 	// set LastCheckedDecodePos and  LastCheckedTick
 	// we shoud reset these values because the clock sources are usually
 	// not identical.
 	tTJSCriticalSectionHolder holder(BufferCS);
-	LastCheckedDecodePos = Player.GetCurrentPlayingPosition();
+	LastCheckedDecodePos = GetCurrentPlayingPosition();
 	LastCheckedTick = TVPGetTickCount();
 }
 //---------------------------------------------------------------------------
@@ -292,7 +471,7 @@ tjs_int tTJSNI_QueueSoundBuffer::FireLabelEventsAndGetNearestLabelEventStep( tjs
 	tTJSCriticalSectionHolder holder(BufferCS);
 
 	if(!BufferPlaying) return TVP_TIMEOFS_INVALID_VALUE; // buffer is not currently playing
-	if(!Player.IsPlaying()) return TVP_TIMEOFS_INVALID_VALUE; // direct sound buffer is not currently playing
+	if(!IsPlaying()) return TVP_TIMEOFS_INVALID_VALUE; // direct sound buffer is not currently playing
 
 	if(LabelEventQueue.size() == 0) return TVP_TIMEOFS_INVALID_VALUE; // no more events
 
@@ -358,26 +537,91 @@ void tTJSNI_QueueSoundBuffer::StartPlay()
 	{	// thread protected block
 		tTJSCriticalSectionHolder holder(BufferCS);
 		Thread->ClearQueue();
-		Player.ClearSampleQueue();
 
-		CreateSoundBuffer();
+		// 既存の AudioContext を破棄
+		if (AudioContext) {
+			ma_sound_uninit(&AudioContext->Sound);
+			delete AudioContext;
+			AudioContext = nullptr;
+		}
+
+		for( tjs_uint i = 0; i < BufferCount; i++ ) {
+			if( Buffer[i] == nullptr ) {
+				Buffer[i] = new tTVPSoundSamplesBuffer( this, i );
+			}
+			Buffer[i]->Create( &InputFormat, UseVisBuffer );
+		}
+
+		// AudioContext を作成
+		AudioContext = new tTVPMiniAudioContext();
+		AudioContext->Owner = this;
+		AudioContext->Channels = InputFormat.Channels;
+		AudioContext->SampleRate = InputFormat.SamplesPerSec;
+		AudioContext->FrameSize = InputFormat.BytesPerSample * InputFormat.Channels;
+		AudioContext->CurrentReadOffset = 0;
+		AudioContext->SoundEnded = false;
+		
+		// フォーマット設定
+		if (InputFormat.IsFloat) {
+			AudioContext->Format = ma_format_f32;
+		} else {
+			switch (InputFormat.BitsPerSample) {
+				case 8:  AudioContext->Format = ma_format_u8;  break;
+				case 16: AudioContext->Format = ma_format_s16; break;
+				case 24: AudioContext->Format = ma_format_s24; break;
+				case 32: AudioContext->Format = ma_format_s32; break;
+				default: AudioContext->Format = ma_format_s16; break;
+			}
+		}
+		
+		// data source を初期化
+		ma_data_source_config dsConfig = ma_data_source_config_init();
+		dsConfig.vtable = &g_data_source_vtable;
+		ma_result result = ma_data_source_init(&dsConfig, &AudioContext->DataSourceBase);
+		if (result != MA_SUCCESS) {
+			delete AudioContext;
+			AudioContext = nullptr;
+			TVPThrowExceptionMessage(TJS_W("Failed to initialize audio data source."));
+		}
+		
+		// ma_sound を data source から初期化
+		ma_engine* engine = GetMiniAudioEngine();
+		if (engine) {
+			result = ma_sound_init_from_data_source(engine, &AudioContext->DataSourceBase, 0, nullptr, &AudioContext->Sound);
+			if (result != MA_SUCCESS) {
+				ma_data_source_uninit(&AudioContext->DataSourceBase);
+				delete AudioContext;
+				AudioContext = nullptr;
+				TVPThrowExceptionMessage(TJS_W("Failed to create audio sound from data source."));
+			}
+		} else {
+			delete AudioContext;
+			AudioContext = nullptr;
+			TVPThrowExceptionMessage(TJS_W("Audio engine not initialized."));
+		}
+
+		// reset volume and frequency
+		SetVolumeToStream();
+		SetFrequencyToStream();
 
 		// reset filter chain
 		ResetFilterChain();
 
 		// fill sound buffer with some first samples
 		BufferPlaying = true;
-		Player.Reset();
+
 		for( tjs_int i = 0; i < BufferCount; i++ ) {
 			Buffer[i]->Reset();
 			Buffer[i]->Decode();
 			Buffer[i]->SetDecodePosition( predecodedSamples );
 			predecodedSamples += Buffer[i]->GetInSamples();
-			PushPlayStream( Buffer[i] );
+			PushPlaySample( Buffer[i] );
 		}
 
 		// start playing
-		Player.Start();
+		if (!Paused) {
+			ma_sound_start(&AudioContext->Sound);
+		}
 
 		// re-schedule label events
 		ResetLastCheckedDecodePos();
@@ -394,9 +638,12 @@ void tTJSNI_QueueSoundBuffer::StopPlay()
 {
 	if(!Decoder) return;
 
-	tTJSCriticalSectionHolder holder(BufferCS);
-
-	Player.Stop();
+	if (AudioContext) {
+		ma_sound_stop(&AudioContext->Sound);
+		ma_sound_uninit(&AudioContext->Sound);
+		delete AudioContext;
+		AudioContext = nullptr;
+	}
 
 	BufferPlaying = false;
 }
@@ -431,11 +678,11 @@ void tTJSNI_QueueSoundBuffer::Stop() {
 }
 //---------------------------------------------------------------------------
 bool tTJSNI_QueueSoundBuffer::GetPaused() const {
-	return Player.IsPaused();
+	return Paused;
 }
 //---------------------------------------------------------------------------
 void tTJSNI_QueueSoundBuffer::SetPaused(bool b) {
-	Player.SetPaused( b );
+	Paused = b;
 }
 //---------------------------------------------------------------------------
 void tTJSNI_QueueSoundBuffer::Open(const ttstr & storagename) {
@@ -496,21 +743,26 @@ void tTJSNI_QueueSoundBuffer::Open(const ttstr & storagename) {
 	SetStatus(ssStop);
 }
 //---------------------------------------------------------------------------
-void tTJSNI_QueueSoundBuffer::ReleasePlayedSamples( tTVPSoundSamplesBuffer* buffer, bool continued ) {
-	// 再生が終了したバッファ。まだ再生するのなら Decoder へ入れる
-	if( continued ) {
-		if( Thread ) Thread->PushSamplesBuffer( buffer );
-	}
-}
-//---------------------------------------------------------------------------
 void tTJSNI_QueueSoundBuffer::SetLooping(bool b) {
 	Looping = b;
 	if( LoopManager ) LoopManager->SetLooping( Looping );
 }
 //---------------------------------------------------------------------------
 tjs_uint64 tTJSNI_QueueSoundBuffer::GetSamplePosition() {
-	if(!Decoder) return 0L;
-	return Player.GetSamplePosition();
+	tjs_uint64 result = 0;
+	if( AudioContext ) {
+		tTJSCriticalSectionHolder holder(BufferCS);
+		tjs_uint64 engineRate = TVPGetMiniAudioSampleRate();
+		tjs_uint64 pos = ma_sound_get_time_in_pcm_frames(&AudioContext->Sound) * AudioContext->SampleRate / engineRate;
+		if( Samples.size() > 0 ) {
+			auto itr = Samples.begin();
+			tTVPSoundSamplesBuffer* sample = *itr;
+			tjs_uint count = sample->GetSamplesCount();
+			tjs_int offset = (tjs_int)( pos % count );
+			result = sample->GetSegmentQueue().FilteredPositionToDecodePosition( offset );
+		}
+	}
+	return result;
 }
 //---------------------------------------------------------------------------
 void tTJSNI_QueueSoundBuffer::SetSamplePosition(tjs_uint64 pos) {
@@ -518,7 +770,7 @@ void tTJSNI_QueueSoundBuffer::SetSamplePosition(tjs_uint64 pos) {
 
 	if(InputFormat.TotalSamples && InputFormat.TotalSamples <= possamples) return;
 
-	if(BufferPlaying && Player.IsPlaying() ) {
+	if(BufferPlaying && IsPlaying()) {
 		StopPlay();
 		LoopManager->SetPosition(possamples);
 		StartPlay();
@@ -529,7 +781,7 @@ void tTJSNI_QueueSoundBuffer::SetSamplePosition(tjs_uint64 pos) {
 //---------------------------------------------------------------------------
 tjs_uint64 tTJSNI_QueueSoundBuffer::GetPosition() {
 	if(!Decoder) return 0L;
-	if(!Player.HasStream()) return 0L;
+	if(!AudioContext) return 0L;
 	return GetSamplePosition() * 1000 / InputFormat.SamplesPerSec;
 }
 //---------------------------------------------------------------------------
@@ -542,8 +794,8 @@ tjs_uint64 tTJSNI_QueueSoundBuffer::GetTotalTime() {
 }
 //---------------------------------------------------------------------------
 void tTJSNI_QueueSoundBuffer::SetVolumeToStream() {
-	// set current volume/pan to Stream
-	if( Player.HasStream() ) {
+	// set current volume/pan to AudioContext
+	if( AudioContext ) {
 		tjs_int v;
 		tjs_int mutevol = 100000;
 #ifdef ANDROID
@@ -582,14 +834,16 @@ void tTJSNI_QueueSoundBuffer::SetVolumeToStream() {
 			}
 		}
 #endif
-		// compute volume for each buffer
+		// compute volume for each buffer (0-100000 -> 0.0-1.0)
 		v = (Volume / 10) * (Volume2 / 10) / 1000;
 		v = (v / 10) * (GlobalVolume / 10) / 1000;
 		v = (v / 10) * (mutevol / 10) / 1000;
-		Player.SetVolume( v );
-
-		// set pan
-		Player.SetPan( Pan );
+		float volume = (float)v / 100000.0f;
+		ma_sound_set_volume(&AudioContext->Sound, volume);
+		
+		// Pan (-100000 to 100000 -> -1.0 to 1.0)
+		float pan = (float)Pan / 100000.0f;
+		ma_sound_set_pan(&AudioContext->Sound, pan);
 	}
 }
 //---------------------------------------------------------------------------
@@ -639,7 +893,11 @@ void tTJSNI_QueueSoundBuffer::SetGlobalFocusMode(tTVPSoundGlobalFocusMode b) {
 }
 //---------------------------------------------------------------------------
 void tTJSNI_QueueSoundBuffer::SetFrequencyToStream() {
-	Player.SetFrequency(Frequency);
+	if(AudioContext && AudioContext->SampleRate > 0) {
+		// Frequency / SampleRate = pitch ratio
+		float pitch = (float)Frequency / (float)AudioContext->SampleRate;
+		ma_sound_set_pitch(&AudioContext->Sound, pitch);
+	}
 }
 //---------------------------------------------------------------------------
 void tTJSNI_QueueSoundBuffer::SetFrequency(tjs_int freq) {
@@ -651,7 +909,7 @@ void tTJSNI_QueueSoundBuffer::SetUseVisBuffer(bool b) {
 	tTJSCriticalSectionHolder holder(BufferCS);
 	if(b) {
 		UseVisBuffer = true;
-		if(Player.HasStream()) ResetVisBuffer();
+		ResetVisBuffer();
 	} else {
 		DeallocateVisBuffer();
 		UseVisBuffer = false;
@@ -664,6 +922,7 @@ void tTJSNI_QueueSoundBuffer::TimerBeatHandler() {
 	// check buffer stopping
 	if(Status == ssPlay && !BufferPlaying)
 	{
+		TVPLOG_DEBUG("QueueSoundBuffer: Buffer stopped");
 		// buffer was stopped
 		ThreadCallbackEnabled = false;
 		TVPSoundBuffers.CheckAllSleep();
@@ -695,13 +954,13 @@ void tTJSNI_QueueSoundBuffer::CopyVisBuffer(tjs_int16 *dest, const tjs_uint8 *sr
 	if(channels == 1)
 	{
 		TVPConvertPCMTo16bits(dest, (const void*)src, InputFormat.Channels,
-			InputFormat.BytesPerSample / 8, InputFormat.BitsPerSample,
+			InputFormat.BytesPerSample, InputFormat.BitsPerSample,
 			InputFormat.IsFloat, numsamples, true);
 	}
 	else if(channels == InputFormat.Channels)
 	{
 		TVPConvertPCMTo16bits(dest, (const void*)src, InputFormat.Channels,
-			InputFormat.BytesPerSample / 8, InputFormat.BitsPerSample,
+			InputFormat.BytesPerSample, InputFormat.BitsPerSample,
 			InputFormat.IsFloat, numsamples, false);
 	}
 }
@@ -710,12 +969,40 @@ tjs_int tTJSNI_QueueSoundBuffer::GetVisBuffer(tjs_int16 *dest, tjs_int numsample
 	// read visualization buffer samples
 	if(!UseVisBuffer) return 0;
 	if(!Decoder) return 0;
-	if(!Player.HasStream()) return 0;
-	if(!Player.IsPlaying() || !BufferPlaying) return 0;
+	if(!IsPlaying() || !BufferPlaying) return 0;
 
 	if(channels != InputFormat.Channels && channels != 1) return 0;
 
-	return Player.GetVisBuffer( dest, numsamples, channels, aheadsamples );
+	tjs_int writtensamples = 0;
+	tjs_uint blockAlign = InputFormat.BytesPerSample * InputFormat.Channels;
+	if( AudioContext ) {
+		tTJSCriticalSectionHolder holder(BufferCS);
+		tjs_uint64 engineRate = TVPGetMiniAudioSampleRate();
+		tjs_uint64 pos = ma_sound_get_time_in_pcm_frames(&AudioContext->Sound) * AudioContext->SampleRate / engineRate;
+		if( Samples.size() > 0 ) {
+			auto itr = Samples.begin();
+			if( (*itr)->GetSegmentQueue().GetFilteredLength() == 0 ) return 0;
+			tTVPSoundSamplesBuffer* sample = *itr;
+			tjs_int count = static_cast<tjs_int>(sample->GetSamplesCount());
+			tjs_int offset = (tjs_int)( pos % count ) + aheadsamples;
+			for( auto i = Samples.begin(); i != Samples.end(); i++ ) {
+				if( offset >= count ) {
+					offset -= count;
+					continue;
+				}
+				tjs_int bufrest = count - offset;
+				tjs_int copysamples = (bufrest > numsamples ? numsamples : bufrest);
+				CopyVisBuffer(dest, (*i)->GetVisBuffer() + offset * blockAlign, copysamples, channels);
+				numsamples -= copysamples;
+				writtensamples += copysamples;
+				if(numsamples <= 0) break;
+
+				dest += channels * copysamples;
+				offset = 0;
+			}
+		}
+	}
+	return writtensamples;
 }
 //---------------------------------------------------------------------------
 

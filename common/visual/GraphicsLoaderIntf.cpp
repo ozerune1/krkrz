@@ -38,7 +38,7 @@ void tTVPGraphicHandlerType::Load( void* formatdata, void *callbackdata, tTVPGra
 {
 	if( LoadHandler == NULL ) TVPThrowExceptionMessage(TVPUnknownGraphicFormat, TJS_W("unknown"));
 
-#ifdef __WIN32__
+#ifdef __WINVER__
 	if( IsPlugin )
 	{
 		tTVPIStreamAdapter *istream = new tTVPIStreamAdapter(src);
@@ -65,7 +65,7 @@ void tTVPGraphicHandlerType::Save( const ttstr & storagename, const ttstr & mode
 	if( SaveHandler == NULL ) TVPThrowExceptionMessage(TVPUnknownGraphicFormat, mode );
 
 	iTJSBinaryStream *stream = TVPCreateStream(TVPNormalizeStorageName(storagename), TJS_BS_WRITE);
-#ifdef __WIN32__
+#ifdef __WINVER__
 	if( IsPlugin )
 	{
 		tTVPIStreamAdapter *istream = new tTVPIStreamAdapter(stream);
@@ -95,7 +95,7 @@ void tTVPGraphicHandlerType::Header( iTJSBinaryStream *src, iTJSDispatch2** dic 
 {
 	if( HeaderHandler == NULL ) TVPThrowExceptionMessage(TVPUnknownGraphicFormat, TJS_W("unknown") );
 
-#ifdef __WIN32__
+#ifdef __WINVER__
 	if( IsPlugin )
 	{
 		tTVPIStreamAdapter *istream = new tTVPIStreamAdapter(src);
@@ -171,7 +171,7 @@ public:
 			TJS_W(".tlg5"), TVPLoadTLG, TVPLoadHeaderTLG, TVPSaveAsTLG, TVPAcceptSaveAsTLG, NULL));
 		Handlers.push_back(tTVPGraphicHandlerType(
 			TJS_W(".tlg6"), TVPLoadTLG, TVPLoadHeaderTLG, TVPSaveAsTLG, TVPAcceptSaveAsTLG, NULL));
-#ifdef __WIN32__
+#ifdef __WINVER__
 		Handlers.push_back(tTVPGraphicHandlerType(
 			TJS_W(".jxr"), TVPLoadJXR, TVPLoadHeaderJXR, TVPSaveAsJXR, TVPAcceptSaveAsJXR, NULL));
 #endif
@@ -255,6 +255,7 @@ void TVPUnregisterGraphicLoadingHandler(const ttstr & name,
 		TVPGraphicType.Unregister(tTVPGraphicHandlerType(name, loading, header, save, accept, formatdata));
 	}
 }
+#ifdef _WIN32
 //---------------------------------------------------------------------------
 void TVPRegisterGraphicLoadingHandler(const ttstr & name,
 	tTVPGraphicLoadingHandlerForPlugin loading,
@@ -283,6 +284,7 @@ void TVPUnregisterGraphicLoadingHandler(const ttstr & name,
 		TVPGraphicType.Unregister(tTVPGraphicHandlerType(name, loading, header, save, accept, formatdata));
 	}
 }
+#endif
 //---------------------------------------------------------------------------
 tTVPGraphicHandlerType* TVPGetGraphicLoadHandler( const ttstr& ext )
 {

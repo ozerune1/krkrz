@@ -133,11 +133,13 @@ bool TVPIsCacheTargetExtension(const ttstr &ext)
 	
 	// make extension lowercase for case-insensitive comparison
 	tjs_char *p = normalized_ext.Independ();
-	while(*p)
-	{
-		if(*p >= TJS_W('A') && *p <= TJS_W('Z'))
-			*p += TJS_W('a') - TJS_W('A');
-		p++;
+	if (p) {
+		while(*p)
+		{
+			if(*p >= TJS_W('A') && *p <= TJS_W('Z'))
+				*p += TJS_W('a') - TJS_W('A');
+			p++;
+		}
 	}
 	
 	return TVPCacheTargetExtensions.find(normalized_ext) != TVPCacheTargetExtensions.end();
@@ -148,6 +150,11 @@ void TVPClearCacheTargetExtensions()
 	TVPCacheTargetExtensions.clear();
 }
 
+// キャッシュ対象かどうかの判定
+bool TVPIsCacheTargetFile(const ttstr &name)
+{
+	return name != "" && name.StartsWith(TJS_W("file://"));
+}
 
 //---------------------------------------------------------------------------
 // utilities
@@ -1572,7 +1579,8 @@ static iTJSBinaryStream * _TVPCreateStream(const ttstr & _name, tjs_uint32 flags
 
 	if(name.IsEmpty()) TVPThrowExceptionMessage(TVPCannotOpenStorage, _name);
 
-	if (access == TJS_BS_READ) {
+	if (access == TJS_BS_READ && TVPIsCacheTargetFile(name)) {
+		
 		// 拡張子を切り出す
 		ttstr ext = TVPExtractStorageExt(name);
 
@@ -1655,6 +1663,7 @@ std::shared_ptr<uint8_t> TVPReadStream(const tjs_char *name, tjs_uint64 *flen)
     return 0;
 }
 
+#include <sstream>
 static std::vector<std::string>* 
 ReadLinesFromString(const char *str)
 {

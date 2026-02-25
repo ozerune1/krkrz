@@ -40,7 +40,11 @@ int gettimeofday(struct timeval * tp, struct timezone * tzp)
 	tp->tv_usec = (long) ( ( time % 10000000L ) / 10 );
 	return 0;
 }
-#elif defined(NINTENDO)
+#elif defined(NN_NINTENDO_SDK)
+typedef struct timeval {
+	time_t tv_sec;
+	long tv_usec;
+} timeval;
 extern int nx_gettimeofday(time_t &sec, long &usec);
 extern void nx_localtime(const time_t *clock, struct tm *tm);
 int gettimeofday(struct timeval * tp, struct timezone * tzp)

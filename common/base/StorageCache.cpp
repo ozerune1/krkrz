@@ -171,6 +171,7 @@ static void EntryStorageCache(const ttstr &name)
 			Stream = NULL;
 		}
 		TVPLOG_ERROR("StorageCache:entry:failed:{}", name);
+		throw;
 	}
 }
 
@@ -312,7 +313,7 @@ void tTVPStorageCacheThread::Execute()
 						RequestQueueFast.pop_front();
 					}
 				}
-				if (name != "" && !TVPCheckStorageCache(name, true) ) {
+				if (TVPIsCacheTargetFile(name) && !TVPCheckStorageCache(name, true) ) {
 					EntryStorageCache(name);
 				}
 			}
@@ -349,7 +350,7 @@ void tTVPStorageCacheThread::Execute()
 								RequestQueue.pop_front();
 							}
 						}
-						if (name != "" && !TVPCheckStorageCache(name, true) ) {
+						if (TVPIsCacheTargetFile(name) && !TVPCheckStorageCache(name, true) ) {
 							EntryStorageCache(name);
 						}
 					}

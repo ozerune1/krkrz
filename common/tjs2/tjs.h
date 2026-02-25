@@ -261,6 +261,8 @@ public:
 		return Seek(0, SEEK_CUR);
 	};
 };
+/** for tp_stub compatibility */
+typedef iTJSBinaryStream tTJSBinaryStream;
 /*]*/
 
 void TVPReadBuffer(iTJSBinaryStream *stream, void *buffer, tjs_uint read_size);

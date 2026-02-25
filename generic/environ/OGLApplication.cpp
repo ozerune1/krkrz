@@ -12,9 +12,5 @@ OGLApplication::OGLApplication()
 tTJSNativeClass* 
 OGLApplication::GetDefaultDrawDevice()
 {
-    static tTJSNativeClass* draw_device = nullptr;
-    if (draw_device == nullptr) {
-        draw_device = new tTJSNC_OGLDrawDevice();
-    }
-    return draw_device;
+    return new tTJSNC_OGLDrawDevice();
 }

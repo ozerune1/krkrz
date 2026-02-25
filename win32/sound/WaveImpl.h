@@ -43,8 +43,8 @@ struct IDirectSound;
 
 //---------------------------------------------------------------------------
 
-TJS_EXP_FUNC_DEF(void, TVPReleaseDirectSound, ());
-TJS_EXP_FUNC_DEF(IDirectSound *, TVPGetDirectSound, ());
+TJS_EXP_FUNC_DEF_ENV(__WINVER__, void, TVPReleaseDirectSound, ());
+TJS_EXP_FUNC_DEF_ENV(__WINVER__, IDirectSound *, TVPGetDirectSound, ());
 extern void TVPResetVolumeToAllSoundBuffer();
 extern void TVPSetWaveSoundBufferUse3DMode(bool b);
 extern bool TVPGetWaveSoundBufferUse3DMode();

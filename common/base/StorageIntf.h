@@ -306,4 +306,7 @@ void TVPRemoveCacheTargetExtension(const ttstr &ext);
 bool TVPIsCacheTargetExtension(const ttstr &ext);
 void TVPClearCacheTargetExtensions();
 
+bool TVPIsCacheTargetFile(const ttstr &name);
+
+
 #endif

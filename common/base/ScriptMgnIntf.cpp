@@ -163,16 +163,16 @@ void TVPInitScriptEngine()
 	TVPScriptEngine->SetPPValue( TJS_W("kirikiriz"), 1 );
 
 	// system definition
-#ifdef __WIN32__
+#ifdef __WINVER__
 	TVPScriptEngine->SetPPValue( TJS_W("windows"), 1 );
+#endif
+
+#ifdef __GENERIC__
+	TVPScriptEngine->SetPPValue( TJS_W("generic"), 1 );
 #endif
 
 #ifdef ANDROID
 	TVPScriptEngine->SetPPValue( TJS_W("android"), 1 );
-#endif
-
-#ifdef NINTENDO
-	TVPScriptEngine->SetPPValue( TJS_W("nintendo_switch"), 1 );
 #endif
 
 	// set TJSGetRandomBits128
@@ -892,7 +892,7 @@ void TVPShowScriptException(eTJSScriptError &e)
 				tjs_string scriptPath( path.AsStdString() );
 				tjs_int lineno = 1+e.GetBlockNoAddRef()->SrcPosToLine(e.GetPosition() )- e.GetBlockNoAddRef()->GetLineOffset();
 
-#if defined(__WIN32__) && defined(_DEBUG) && !defined(ENABLE_DEBUGGER)
+#if defined(_WIN32) && defined(_DEBUG) && !defined(ENABLE_DEBUGGER)
 // デバッガ実行されている時、Visual Studio で行ジャンプする時の指定をデバッグ出力に出して、break で停止する
 				if( ::IsDebuggerPresent() ) {
 					tjs_string debuglile( tjs_string(TJS_W("2>"))+path.AsStdString()+TJS_W("(")+to_tjs_string(lineno)+TJS_W("): error :") + errstr.AsStdString() );
@@ -901,6 +901,9 @@ void TVPShowScriptException(eTJSScriptError &e)
 					::DebugBreak();
 				}
 #endif
+
+// --exceptionexe 機能は危険なので互換でのみ残す
+#if defined(__WINVER__)
 				scriptPath = tjs_string(TJS_W("\"")) + scriptPath + tjs_string(TJS_W("\""));
 				tTJSVariant val;
 				if( TVPGetCommandLine(TJS_W("-exceptionexe"), &val) )
@@ -918,12 +921,11 @@ void TVPShowScriptException(eTJSScriptError &e)
 							//_wsystem( exepath.c_str() );
 							arg = ttstr(str);
 							TVPAddLog( ttstr(TJS_W("(execute) "))+exepath+ttstr(TJS_W(" "))+arg);
-#if defined(__WIN32__)
 							TVPShellExecute( exepath, arg );
-#endif	// Android では Intent で他のアプリに送れるようにする方がよい
 						}
 					}
 				}
+#endif
 			} catch(...) {
 			}
 		}

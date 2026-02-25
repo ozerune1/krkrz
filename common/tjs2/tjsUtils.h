@@ -14,21 +14,12 @@
 #include "tjsVariant.h"
 #include "tjsString.h"
 
-#if 1
 #include <mutex>
-#else
-#ifdef __WIN32__
-#include <windows.h>
-#else
-#include <semaphore.h>
-#endif
-#endif
 namespace TJS
 {
 //---------------------------------------------------------------------------
 // tTJSCriticalSection ( implement on each platform for multi-threading support )
 //---------------------------------------------------------------------------
-#if 1
 class tTJSCriticalSection
 {
 	std::recursive_mutex Mutex;
@@ -40,32 +31,7 @@ public:
 	void Enter() { Mutex.lock(); }
 	void Leave() { Mutex.unlock(); }
 };
-#else
-#ifdef __WIN32__
-class tTJSCriticalSection
-{
-	CRITICAL_SECTION CS;
-public:
-	tTJSCriticalSection() { InitializeCriticalSection(&CS); }
-	~tTJSCriticalSection() { DeleteCriticalSection(&CS); }
 
-	void Enter() { EnterCriticalSection(&CS); }
-	void Leave() { LeaveCriticalSection(&CS); }
-};
-#else
-// implements Semaphore
-class tTJSCriticalSection
-{
-	sem_t Handle;
-public:
-	tTJSCriticalSection() { sem_init( &Handle, 0, 1 ); }
-	~tTJSCriticalSection() { sem_destroy( &Handle ); }
-
-	void Enter() { sem_wait( &Handle ); }
-	void Leave() { sem_post( &Handle ); }
-};
-#endif
-#endif
 //---------------------------------------------------------------------------
 // interlocked operation ( implement on each platform for multi-threading support )
 //---------------------------------------------------------------------------

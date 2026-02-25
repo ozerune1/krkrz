@@ -20,6 +20,7 @@
 //---------------------------------------------------------------------------
 // window message receivers
 //---------------------------------------------------------------------------
+#ifdef _WIN32
 enum tTVPWMRRegMode { wrmRegister=0, wrmUnregister=1 };
 #pragma pack(push, 4)
 struct tTVPWindowMessage
@@ -37,7 +38,7 @@ typedef bool (__stdcall * tTVPWindowMessageReceiver)
 #define TVP_WM_ATTACH (WM_USER+107)  // after re-generating the window
 #define TVP_WM_FULLSCREEN_CHANGING (WM_USER+108)  // before full-screen or window changing
 #define TVP_WM_FULLSCREEN_CHANGED  (WM_USER+109)  // after full-screen or window changing
-
+#endif
 
 /*]*/
 //---------------------------------------------------------------------------
@@ -106,12 +107,12 @@ extern tjs_int TVPGetCursor(const ttstr & name);
 //---------------------------------------------------------------------------
 // Utility functions
 //---------------------------------------------------------------------------
-TJS_EXP_FUNC_DEF(tjs_uint32, TVPGetCurrentShiftKeyState, ());
+TJS_EXP_FUNC_DEF_ENV(__WINVER__, tjs_uint32, TVPGetCurrentShiftKeyState, ());
 
 // implement for Application
-TJS_EXP_FUNC_DEF(void, TVPRegisterAcceleratorKey, (HWND hWnd, char virt, short key, short cmd) );
-TJS_EXP_FUNC_DEF(void, TVPUnregisterAcceleratorKey, (HWND hWnd, short cmd));
-TJS_EXP_FUNC_DEF(void, TVPDeleteAcceleratorKeyTable, (HWND hWnd));
+TJS_EXP_FUNC_DEF_ENV(__WINVER__, void, TVPRegisterAcceleratorKey, (HWND hWnd, char virt, short key, short cmd) );
+TJS_EXP_FUNC_DEF_ENV(__WINVER__, void, TVPUnregisterAcceleratorKey, (HWND hWnd, short cmd));
+TJS_EXP_FUNC_DEF_ENV(__WINVER__, void, TVPDeleteAcceleratorKeyTable, (HWND hWnd));
 HWND TVPGetModalWindowOwnerHandle();
 //---------------------------------------------------------------------------
 
@@ -205,19 +206,11 @@ extern void TVPTestDisplayMode(tjs_int w, tjs_int h, tjs_int & bpp);
 extern void TVPSwitchToFullScreen(HWND window, tjs_int w, tjs_int h, class iTVPDrawDevice* drawdevice);
 extern void TVPRecalcFullScreen( tjs_int w, tjs_int h );
 extern void TVPRevertFromFullScreen(HWND window,tjs_uint w,tjs_uint h, class iTVPDrawDevice* drawdevice);
-TJS_EXP_FUNC_DEF(void, TVPEnsureDirect3DObject, ());
+TJS_EXP_FUNC_DEF_ENV(__WINVER__, void, TVPEnsureDirect3DObject, ());
 void TVPDumpDirect3DDriverInformation();
 extern tTVPScreenModeCandidate TVPFullScreenMode;
-/*[*/
-//---------------------------------------------------------------------------
-// Direct3D former declaration
-//---------------------------------------------------------------------------
-#ifndef DIRECT3D_VERSION
-struct IDirect3D9;
-#endif
 
-/*]*/
-TJS_EXP_FUNC_DEF(IDirect3D9 *,  TVPGetDirect3DObjectNoAddRef, ());
+TJS_EXP_FUNC_DEF_ENV(__WINVER__, IDirect3D9 *,  TVPGetDirect3DObjectNoAddRef, ());
 extern void TVPMinimizeFullScreenWindowAtInactivation();
 extern void TVPRestoreFullScreenWindowAtActivation();
 //---------------------------------------------------------------------------

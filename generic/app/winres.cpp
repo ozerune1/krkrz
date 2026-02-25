@@ -127,7 +127,7 @@ public:
         } else {
             // Handle string resource names
             // 全部小文字にする
-            ttstr name = lpszName;
+            ttstr name = (tjs_char*)lpszName;
             name.ToLowerCase();
             lister->Add(name);
         }

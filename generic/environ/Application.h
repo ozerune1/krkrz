@@ -19,6 +19,7 @@
 #include "tjsUtils.h"
 #include "tjsNative.h"
 #include "RectItf.h"
+#include "tjs.h"
 
 #include "tvpinputdefs.h"
 #include "WindowFormEvent.h"
@@ -104,6 +105,9 @@ public:
 	// ジョイパッドイベント処理
 	// GetPadState() の結果を処理する
 	void SendPadEvent();
+
+protected:
+	void OnInitialize(tTJS *tjs){}
 
 public:
 	// -------------------------------------------------------------------

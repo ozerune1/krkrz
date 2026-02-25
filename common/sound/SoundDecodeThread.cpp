@@ -34,22 +34,25 @@ void tTVPSoundDecodeThread::Execute(void) {
 	SetPriority(TVPDecodeThreadHighPriority);
 	while( !GetTerminated() ) {
 		tjs_uint32 count = 0;
+
+		tTVPSoundSamplesBuffer* buf = nullptr;
 		{
 			tTJSCriticalSectionHolder cs_holder(OneLoopCS);
 			count = Samples.size();
 			if( count ) {
 				// バッファにデコードしたSampleを入れる
 				auto itr = Samples.begin();
-				tTVPSoundSamplesBuffer* buf = *itr;
+				buf = *itr;
 				buf->Decode();
 				buf->SetDecodePosition( DecodedSamples );
 				DecodedSamples += buf->GetInSamples();
-
-				// デコード済みSampleを再生ストリームへ移動
-				Owner->PushPlayStream( buf );
 				Samples.erase( itr );
 				count = Samples.size();
 			}
+		}
+		// デコード済みSampleを再生ストリームへ移動
+		if (buf) {
+			Owner->PushPlaySample( buf );
 		}
 
 		if( GetTerminated() ) break;

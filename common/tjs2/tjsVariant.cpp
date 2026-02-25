@@ -657,6 +657,16 @@ tTJSVariant & tTJSVariant::operator =(tjs_real ref) // from double
 	Real=ref;
 	return *this;
 }
+#ifdef __APPLE__
+//---------------------------------------------------------------------------
+tTJSVariant & tTJSVariant::operator =(tjs_intptr_t ref) // from double
+{
+	ReleaseContent();
+	vt=tvtInteger;
+	Integer=(tTVInteger)ref;
+	return *this;
+}
+#endif
 //---------------------------------------------------------------------------
 bool tTJSVariant::NormalCompare(const tTJSVariant &val2) const
 {

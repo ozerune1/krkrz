@@ -9,7 +9,7 @@
 #include "StringUtil.h"
 #include <cmath>
 #include <algorithm>
-#ifdef __WIN32__
+#ifdef __WINVER__
 #include "TVPSysFont.h"
 #endif
 
@@ -216,7 +216,7 @@ bool FreeTypeFontRasterizer::AddFont( const ttstr& storage, std::vector<tjs_stri
 //---------------------------------------------------------------------------
 extern void TVPGetFontListFromFreeType(std::vector<ttstr> & list, tjs_uint32 flags, const tTVPFont & font );
 void FreeTypeFontRasterizer::GetFontList(std::vector<ttstr> & list, tjs_uint32 flags, const struct tTVPFont & font ) {
-#ifdef __WIN32__
+#ifdef __WINVER__
 	TVPGetFontList( list, flags, font );
 #endif
 	TVPGetFontListFromFreeType( list, flags, font );

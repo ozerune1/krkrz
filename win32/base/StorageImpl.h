@@ -165,7 +165,7 @@ public:
 //---------------------------------------------------------------------------
 // IStream creator
 //---------------------------------------------------------------------------
-TJS_EXP_FUNC_DEF(IStream *, TVPCreateIStream, (const ttstr &name, tjs_uint32 flags));
+TJS_EXP_FUNC_DEF_ENV(__WINVER__, IStream *, TVPCreateIStream, (const ttstr &name, tjs_uint32 flags));
 //---------------------------------------------------------------------------
 
 
@@ -203,13 +203,12 @@ public:
 
 
 
-
 //---------------------------------------------------------------------------
 // tTVPBinaryStreamAdapter creator
 //---------------------------------------------------------------------------
-TJS_EXP_FUNC_DEF(iTJSBinaryStream *, TVPCreateBinaryStreamAdapter, (IStream *refstream));
+TJS_EXP_FUNC_DEF_ENV(__WINVER__, iTJSBinaryStream *, TVPCreateBinaryStreamAdapterNew, (IStream *refstream));
+TJS_EXP_FUNC_DEF_ENV(__WINVER__, tTJSBinaryStream *, TVPCreateBinaryStreamAdapter, (IStream *refstream));
 //---------------------------------------------------------------------------
-
 
 
 //---------------------------------------------------------------------------

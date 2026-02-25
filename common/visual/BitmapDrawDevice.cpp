@@ -12,7 +12,7 @@
 #include "ComplexRect.h"
 #include "EventIntf.h"
 #include "WindowImpl.h"
-#include "BitmapInfomationImpl.h"
+#include "BitmapInfomation.h"
 
 #include <algorithm>
 
@@ -142,14 +142,14 @@ void TJS_INTF_METHOD tTVPBitmapDrawDevice::StartBitmapCompletion(iTVPLayerManage
 }
 //---------------------------------------------------------------------------
 void TJS_INTF_METHOD tTVPBitmapDrawDevice::NotifyBitmapCompleted(iTVPLayerManager * manager,
-	tjs_int x, tjs_int y, const void * bits, const class BitmapInfomation * bmpinfo,
+	tjs_int x, tjs_int y, const void * bits, const BITMAPINFO * bmpinfo,
 	const tTVPRect &cliprect, tTVPLayerType type, tjs_int opacity)
 {
 	if (!BitmapInstance) return;
 
-	int _width  = bmpinfo->GetWidth();
-	int _height = bmpinfo->GetHeight();
-	int _pitch  = bmpinfo->GetPitchBytes(); 
+	int _width  = bmpinfo->bmiHeader.biWidth;
+	int _height = bmpinfo->bmiHeader.biHeight;
+	int _pitch  = bmpinfo->bmiHeader.biSizeImage / _height;
 
 	int src_w = cliprect.get_width();
 	int src_h = cliprect.get_height();

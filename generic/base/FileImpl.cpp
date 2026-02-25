@@ -86,9 +86,9 @@ StdFileSystem::GetListAt(const tjs_char *name, std::function<void(const tjs_char
 			bool isDir = x.is_directory();
 			if (x.is_regular_file() || (withDir && isDir)) {
 #ifdef _WIN32
-				lister(x.path().filename().wstring().c_str(), isdir);
+				lister((const tjs_char *)x.path().filename().wstring().c_str(), isDir);
 #else
-				lister(x.path().filename().u16string().c_str(), isdir);
+				lister(x.path().filename().u16string().c_str(), isDir);
 #endif
 			}
 		}

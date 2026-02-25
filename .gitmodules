@@ -1,3 +1,6 @@
 [submodule "external/baseclasses"]
 	path = external/baseclasses
 	url = https://github.com/krkrz/baseclasses.git
+[submodule "external/movie-player"]
+	path = external/movie-player
+	url = https://github.com/wamsoft/movie-player.git

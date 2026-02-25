@@ -123,7 +123,7 @@ struct tTJSArraySortCompare_NormalAscending
 {
 	bool operator () (const tTJSVariant &lhs, const tTJSVariant &rhs) const
 	{
-		return lhs.LittlerThan(rhs);
+		return rhs.LittlerThan(lhs);
 	}
 };
 
@@ -131,7 +131,7 @@ struct tTJSArraySortCompare_NormalDescending
 {
 	bool operator () (const tTJSVariant &lhs, const tTJSVariant &rhs) const
 	{
-		return lhs.GreaterThan(rhs);
+		return rhs.GreaterThan(lhs);
 	}
 };
 
@@ -144,9 +144,9 @@ struct tTJSArraySortCompare_NumericAscending
 			tTJSVariant ltmp(lhs), rtmp(rhs);
 			ltmp.tonumber();
 			rtmp.tonumber();
-			return ltmp.LittlerThan(rtmp);
+			return rtmp.LittlerThan(ltmp);
 		}
-		return lhs.LittlerThan(rhs);
+		return rhs.LittlerThan(lhs);
 	}
 };
 
@@ -159,9 +159,9 @@ struct tTJSArraySortCompare_NumericDescending
 			tTJSVariant ltmp(lhs), rtmp(rhs);
 			ltmp.tonumber();
 			rtmp.tonumber();
-			return ltmp.GreaterThan(rtmp);
+			return rtmp.GreaterThan(ltmp);
 		}
-		return lhs.GreaterThan(rhs);
+		return rhs.GreaterThan(lhs);
 	}
 };
 struct tTJSArraySortCompare_StringAscending
@@ -938,7 +938,7 @@ TJS_BEGIN_NATIVE_METHOD_DECL(/* func.name */find)
 		if(i == ni->Items.end())
 			*result = -1;
 		else
-			*result = i - ni->Items.begin();
+			*result = (tjs_int)(i - ni->Items.begin());
 	}
 
 	return TJS_S_OK;

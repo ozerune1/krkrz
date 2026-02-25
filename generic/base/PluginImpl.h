@@ -31,6 +31,16 @@ struct iTVPFunctionExporter
 };
 //---------------------------------------------------------------------------
 
+//---------------------------------------------------------------------------
+// iTVPStaticPlugin structure for registering static plugins to
+//---------------------------------------------------------------------------
+struct iTVPStaticPlugin {
+    const tjs_char* name;
+	int32_t (STDCALL *link)(iTVPFunctionExporter *);
+	int32_t (STDCALL *unlink)();
+};
+extern "C" void TVPRegisterPlugin(const iTVPStaticPlugin* plugin);
+//---------------------------------------------------------------------------
 
 /*]*/
 //---------------------------------------------------------------------------
@@ -45,8 +55,8 @@ extern "C"
 	iTVPFunctionExporter * TVPGetFunctionExporter();
 
 	// V2 plug-in
-	typedef tjs_error (* tTVPV2LinkProc)(iTVPFunctionExporter *);
-	typedef tjs_error (* tTVPV2UnlinkProc)();
+	typedef int32_t (STDCALL * tTVPV2LinkProc)(iTVPFunctionExporter *);
+	typedef int32_t (STDCALL * tTVPV2UnlinkProc)();
 }
 //---------------------------------------------------------------------------
 
@@ -122,6 +132,7 @@ typedef void (TJS_USERENTRY *tTVPFinallyBlockFunction)(void *data);
 
 TJS_EXP_FUNC_DEF(void, TVPDoTryBlock, (tTVPTryBlockFunction tryblock, tTVPCatchBlockFunction catchblock, tTVPFinallyBlockFunction finallyblock, void *data));
 
+TJS_EXP_FUNC_DEF(bool, TVPGetFileVersionOf, (const tjs_char* module_filename, tjs_int &major, tjs_int &minor, tjs_int &release, tjs_int &build));
 
 
 //---------------------------------------------------------------------------

@@ -97,6 +97,9 @@ private:
 	CCritSec		m_BufferLock;	//!< バッファへアクセスする時にロックする
 	CMediaType		m_MtIn;			//!< Source connection media type
 
+	bool m_isYUV2; // YUY2フォーマットかどうか
+	BYTE *m_RenderBuffer; // レンダリング用バッファ
+
 public:
 	static CUnknown * WINAPI CreateInstance( LPUNKNOWN, HRESULT * );
 	TBufferRenderer( TCHAR *pName, LPUNKNOWN pUnk, HRESULT *phr );
@@ -156,6 +159,9 @@ protected:
 	{
 		m_InputPin.SetPointer( ptr );
 	}
+
+	void InitRenderBuffer(size_t size);
+	void FreeRenderBuffer();
 };
 
 

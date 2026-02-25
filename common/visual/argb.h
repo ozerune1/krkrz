@@ -13,7 +13,7 @@
 
 #include "tvpgl.h"
 //---------------------------------------------------------------------------
-#if defined(__WIN32__) || defined(__GNUC__)
+#if defined(__WINVER__) || defined(__GNUC__)
 	// for assembler compatibility
 	#pragma pack(push,1)
 #endif
@@ -213,7 +213,7 @@ struct tTVPARGB_AA : public tTVPARGB<base_type>
 
 
 //---------------------------------------------------------------------------
-#if defined(__WIN32__) || defined(__GNUC__)
+#if defined(__WINVER__) || defined(__GNUC__)
 	// for assembler compatibility
 	#pragma pack(pop)
 #endif
