@@ -384,7 +384,7 @@ elseif(ANDROID)
 # install でファイルをアプリに一式コピーする
 # LINUX誤認防止で先に定義
 
-elseif(LINUX)
+elseif(UNIX)
 
 # objcopy でバイナリを埋め込む
 # objcopy のコマンドを探す

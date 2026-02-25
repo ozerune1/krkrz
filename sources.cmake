@@ -420,7 +420,7 @@ elseif(ANDROID)
 		generic/app/andres.cpp
 		sdl3/utils/ThreadImpl.cpp
 	)
-elseif(LINUX)
+elseif(UNIX)
 	list(APPEND KRKRZ_SRC_SDL3
 		sdl3/environ/stdapp.cpp
 		common/base/FileAllocator.cpp
