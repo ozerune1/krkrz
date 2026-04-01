@@ -254,15 +254,21 @@ class tTVPStorageMediaManager
 	class tMediaRecord
 	{
 	public:
+		int version;
 		ttstr CurrentDomain;
 		ttstr CurrentPath;
 		tTJSRefHolder<iTVPStorageMedia> MediaIntf;
 		tjs_int MediaNameLen;
 //		bool IsCaseSensitive;
 
-		tMediaRecord(iTVPStorageMedia *media) : MediaIntf(media), CurrentDomain("."), CurrentPath("/")
+		tMediaRecord(iTVPStorageMedia *media) : version(1), MediaIntf(media), CurrentDomain("."), CurrentPath("/")
 			{ ttstr name; media->GetName(name); MediaNameLen = name.GetLen();
 			/*IsCaseSensitive = media->IsCaseSensitive();*/ }
+
+		tMediaRecord(iTVPStorageMedia2 *media) : version(2), MediaIntf(media), CurrentDomain("."), CurrentPath("/")
+			{ ttstr name; media->GetName(name); MediaNameLen = name.GetLen();
+			/*IsCaseSensitive = media->IsCaseSensitive();*/ }
+
 
 		const tjs_char *GetDomainAndPath(const ttstr &name)
 		{
@@ -286,6 +292,7 @@ private:
 public:
 	void Register(iTVPStorageMedia * media);
 	void Unregister(iTVPStorageMedia * media);
+	void Register(iTVPStorageMedia2 * media);
 
 	ttstr NormalizeStorageName(const ttstr &name, ttstr *ret_media = NULL,
 		ttstr *ret_domain = NULL, ttstr *ret_path = NULL);
@@ -298,6 +305,10 @@ public:
 	iTJSBinaryStream * Open(const ttstr & name, tjs_uint32 flags);
 	void GetListAt(const ttstr &name, iTVPStorageLister *lister);
 	ttstr GetLocallyAccessibleName(const ttstr &name);
+	
+	bool Remove(const ttstr & name);
+	bool Move(const ttstr & from, const ttstr & to);
+
 } TVPStorageMediaManager;
 //---------------------------------------------------------------------------
 tTVPStorageMediaManager::tTVPStorageMediaManager()
@@ -325,6 +336,19 @@ tTVPStorageMediaManager::tMediaRecord *
 }
 //---------------------------------------------------------------------------
 void tTVPStorageMediaManager::Register(iTVPStorageMedia * media)
+{
+	ttstr medianame;
+	media->GetName(medianame);
+
+	tMediaRecord *rec = HashTable.Find(*(tMediaNameString*)&medianame);
+	if(rec)
+		TVPThrowExceptionMessage( TVPMediaNameHadAlreadyBeenRegistered, medianame );
+
+	tMediaRecord new_rec(media);
+
+	HashTable.Add(*(tMediaNameString*)&medianame, new_rec);
+}
+void tTVPStorageMediaManager::Register(iTVPStorageMedia2 * media)
 {
 	ttstr medianame;
 	media->GetName(medianame);
@@ -628,6 +652,58 @@ ttstr tTVPStorageMediaManager::GetLocallyAccessibleName(const ttstr &name)
 }
 //---------------------------------------------------------------------------
 
+bool tTVPStorageMediaManager::Remove(const ttstr & name)
+{
+	tMediaRecord *rec = GetMediaRecord(name);
+	ttstr dname = rec->GetDomainAndPath(name);
+	if (rec->version >= 2) {
+		// if media supports iTVPStorageMedia2, use Remove2 method
+		TVPLOG_DEBUG("Trying to remove storage by media's Remove method: {}", name);
+		iTVPStorageMedia2 *media2 = dynamic_cast<iTVPStorageMedia2 *>(rec->MediaIntf.GetObjectNoAddRef());
+		if (media2 && media2->Remove(dname)) {
+			TVPLOG_DEBUG("Remove by media's Remove method succeeded: {}", name);
+			return true;
+		}
+	}
+	rec->MediaIntf.GetObjectNoAddRef()->GetLocallyAccessibleName(dname);
+	if (dname != "") {
+		// if the file is accessible from local file system, try to remove it by ourselves
+		TVPLOG_DEBUG("delete file:{}", dname);
+		return TVPRemoveFile(dname);
+	}
+	return false;
+}
+
+bool tTVPStorageMediaManager::Move(const ttstr & from, const ttstr & to)
+{
+	tMediaRecord *rec = GetMediaRecord(from);
+	tMediaRecord *rec_to   = GetMediaRecord(to);
+	if (rec != rec_to) {
+		return false;
+	}
+	ttstr dname_from = rec->GetDomainAndPath(from);
+	ttstr dname_to   = rec->GetDomainAndPath(to);
+
+	if (rec->version >= 2) {
+		// if media supports iTVPStorageMedia2, use Remove method
+		TVPLOG_DEBUG("Trying to move storage by media's Move method: from:{} to:{}", from, to);
+		iTVPStorageMedia2 *media2 = dynamic_cast<iTVPStorageMedia2 *>(rec->MediaIntf.GetObjectNoAddRef());
+		if (media2 && media2->Move(dname_from, dname_to)) {
+			TVPLOG_DEBUG("Move by media's Move method succeeded: from:{} to:{}", from, to);
+			return true;
+		}
+	}
+	rec->MediaIntf.GetObjectNoAddRef()->GetLocallyAccessibleName(dname_from);
+	rec->MediaIntf.GetObjectNoAddRef()->GetLocallyAccessibleName(dname_to);
+	if (dname_from != "" && dname_to != "") {
+		// if both files are accessible from local file system, try to move it by ourselves
+		TVPLOG_DEBUG("move file: from:{} to:{}", dname_from, dname_to);
+		if (TVPMoveFile(dname_from, dname_to)) {
+			return true;
+		}
+	}
+	return false;
+}
 
 //---------------------------------------------------------------------------
 void TVPRegisterStorageMedia(iTVPStorageMedia *media)
@@ -640,11 +716,21 @@ void TVPUnregisterStorageMedia(iTVPStorageMedia *media)
 	TVPStorageMediaManager.Unregister(media);
 }
 //---------------------------------------------------------------------------
+void TVPRegisterStorageMedia(iTVPStorageMedia2 *media)
+{
+	TVPStorageMediaManager.Register(media);
+}
 
-
-
-
-
+//---------------------------------------------------------------------------
+bool TVPRemoveStorage(const ttstr &name)
+{
+	return TVPStorageMediaManager.Remove(name);
+}
+//---------------------------------------------------------------------------
+bool TVPMoveStorage(const ttstr &from, const ttstr &to)
+{
+	return TVPStorageMediaManager.Move(from, to);
+}
 
 //---------------------------------------------------------------------------
 // TVPNormalizeStorgeName : storage name normalization

@@ -32,94 +32,6 @@
 #include <algorithm>
 #include "SoundSamples.h"
 
-// miniaudio
-#include "miniaudio.h"
-
-static const int VOLUME_MAX = 100000;
-
-//---------------------------------------------------------------------------
-// miniaudio データソース構造体
-//---------------------------------------------------------------------------
-struct tTVPMiniAudioContext {
-	ma_data_source_base DataSourceBase;
-	ma_sound Sound;
-	tTJSNI_QueueSoundBuffer* Owner;
-	
-	ma_format Format;
-	ma_uint32 Channels;
-	ma_uint32 SampleRate;
-	ma_uint32 FrameSize;
-	
-	tjs_int VolumeValue;
-	tjs_int PanValue;
-	tjs_int FrequencyValue;
-	
-	bool SoundEnded;
-	
-	// 読み取り位置管理（バイト単位）
-	size_t CurrentReadOffset;
-	
-	tTVPMiniAudioContext() : Owner(nullptr), VolumeValue(VOLUME_MAX), 
-		PanValue(0), FrequencyValue(0), SoundEnded(false), CurrentReadOffset(0) {}
-};
-
-// miniaudio データソース vtable
-static ma_result ma_data_source_read_proc(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead);
-static ma_result ma_data_source_seek_proc(ma_data_source* pDataSource, ma_uint64 frameIndex);
-static ma_result ma_data_source_get_data_format_proc(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap);
-static ma_result ma_data_source_get_cursor_proc(ma_data_source* pDataSource, ma_uint64* pCursor);
-static ma_result ma_data_source_get_length_proc(ma_data_source* pDataSource, ma_uint64* pLength);
-
-static ma_data_source_vtable g_data_source_vtable = {
-	ma_data_source_read_proc,
-	ma_data_source_seek_proc,
-	ma_data_source_get_data_format_proc,
-	ma_data_source_get_cursor_proc,
-	ma_data_source_get_length_proc,
-	NULL,
-	MA_DATA_SOURCE_SELF_MANAGED_RANGE_AND_LOOP_POINT
-};
-
-static ma_result ma_data_source_read_proc(ma_data_source* pDataSource, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
-{
-	tTVPMiniAudioContext* ctx = (tTVPMiniAudioContext*)pDataSource;
-	if (ctx && ctx->Owner) {
-		int framesRead = ctx->Owner->ReadAudioData(pFramesOut, (int)frameCount);
-		if (pFramesRead) {
-			*pFramesRead = framesRead;
-		}
-		return (framesRead == 0) ? MA_AT_END : MA_SUCCESS;
-	}
-	if (pFramesRead) *pFramesRead = 0;
-	return MA_AT_END;
-}
-
-static ma_result ma_data_source_seek_proc(ma_data_source* pDataSource, ma_uint64 frameIndex)
-{
-	return MA_NOT_IMPLEMENTED;
-}
-
-static ma_result ma_data_source_get_data_format_proc(ma_data_source* pDataSource, ma_format* pFormat, ma_uint32* pChannels, ma_uint32* pSampleRate, ma_channel* pChannelMap, size_t channelMapCap)
-{
-	tTVPMiniAudioContext* ctx = (tTVPMiniAudioContext*)pDataSource;
-	if (pFormat) *pFormat = ctx->Format;
-	if (pChannels) *pChannels = ctx->Channels;
-	if (pSampleRate) *pSampleRate = ctx->SampleRate;
-	return MA_SUCCESS;
-}
-
-static ma_result ma_data_source_get_cursor_proc(ma_data_source* pDataSource, ma_uint64* pCursor)
-{
-	if (pCursor) *pCursor = 0;
-	return MA_NOT_IMPLEMENTED;
-}
-
-static ma_result ma_data_source_get_length_proc(ma_data_source* pDataSource, ma_uint64* pLength)
-{
-	if (pLength) *pLength = 0;
-	return MA_NOT_IMPLEMENTED;
-}
-
 //---------------------------------------------------------------------------
 // static function for TJS WaveSoundBuffer class
 //---------------------------------------------------------------------------
@@ -185,7 +97,7 @@ void TVPInitSoundOptions()
 tTJSNI_QueueSoundBuffer::tTJSNI_QueueSoundBuffer() : Paused(false)
 {
 	TVPInitSoundOptions();
-	AudioContext = nullptr;
+	Stream = nullptr;
 	Decoder = nullptr;
 	LoopManager = nullptr;
 	Thread = nullptr;
@@ -253,16 +165,11 @@ void tTJSNI_QueueSoundBuffer::DestroySoundBuffer() {
 	Samples.clear();
 }
 //---------------------------------------------------------------------------
-bool tTJSNI_QueueSoundBuffer::IsPlaying() {
-	return AudioContext && ma_sound_is_playing(&AudioContext->Sound);
-}
-//---------------------------------------------------------------------------
 tjs_int64 tTJSNI_QueueSoundBuffer::GetCurrentPlayingPosition() {
 	tjs_int64 result = -1;
-	if( AudioContext ) {
+	if( Stream ) {
 		tTJSCriticalSectionHolder holder(BufferCS);
-		tjs_uint64 engineRate = TVPGetMiniAudioSampleRate();
-		tjs_uint64 pos = ma_sound_get_time_in_pcm_frames(&AudioContext->Sound) * AudioContext->SampleRate / engineRate;
+		tjs_uint64 pos = Stream->GetSamplesPlayed();
 		if( Samples.size() > 0 ) {
 			auto itr = Samples.begin();
 			tTVPSoundSamplesBuffer* sample = *itr;
@@ -272,64 +179,6 @@ tjs_int64 tTJSNI_QueueSoundBuffer::GetCurrentPlayingPosition() {
 		}
 	}
 	return result;
-}
-//---------------------------------------------------------------------------
-int tTJSNI_QueueSoundBuffer::ReadAudioData(void* pFramesOut, int frameCount) {
-	// miniaudio から呼ばれる: Samples キューからデータを読み取る
-	if (!AudioContext || !pFramesOut || frameCount <= 0) {
-		return 0;
-	}
-	
-	tTJSCriticalSectionHolder holder(BufferCS);
-	
-	tjs_uint8* dest = (tjs_uint8*)pFramesOut;
-	tjs_uint frameSize = AudioContext->FrameSize;
-	int framesRead = 0;
-	
-	while (framesRead < frameCount) {
-		// Samples キューが空か確認
-		if (Samples.empty()) {
-			// データがなければ終了
-			break;
-		}
-		
-		tTVPSoundSamplesBuffer* buffer = Samples.front();
-		tjs_uint bufferBytes = buffer->GetBufferSize();
-		const tjs_uint8* src = buffer->GetBuffer();
-		
-		// 現在のバッファで読める残りバイト数
-		size_t remainingInBuffer = bufferBytes - AudioContext->CurrentReadOffset;
-		
-		// 要求されている残りフレームをバイト数に変換
-		int remainingFrames = frameCount - framesRead;
-		size_t bytesNeeded = remainingFrames * frameSize;
-		
-		// 実際にコピーするバイト数
-		size_t bytesToCopy = (bytesNeeded < remainingInBuffer) ? bytesNeeded : remainingInBuffer;
-		
-		// データコピー
-		memcpy(dest, src + AudioContext->CurrentReadOffset, bytesToCopy);
-		dest += bytesToCopy;
-		AudioContext->CurrentReadOffset += bytesToCopy;
-		framesRead += (int)(bytesToCopy / frameSize);
-		
-		// バッファを使い切った場合
-		if (AudioContext->CurrentReadOffset >= bufferBytes) {
-			AudioContext->CurrentReadOffset = 0;
-			
-			// 使い終わったバッファを解放
-			bool wasEnded = buffer->IsEnded();
-			ReleasePlayedSample(buffer);
-			
-			// 終端バッファだった場合
-			if (wasEnded) {
-				AudioContext->SoundEnded = true;
-				break;
-			}
-		}
-	}
-	
-	return framesRead;
 }
 //---------------------------------------------------------------------------
 void tTJSNI_QueueSoundBuffer::ResetSamplePositions() {
@@ -379,8 +228,12 @@ void tTJSNI_QueueSoundBuffer::PushPlaySample( tTVPSoundSamplesBuffer* buffer ) {
 
 	ResetLastCheckedDecodePos();
 
-	// Samples キューに追加（miniaudio が ReadAudioData で読み出す）
 	Samples.push_back(buffer);
+	if (Stream) {
+		Stream->Enqueue( buffer->GetBuffer(), buffer->GetBufferSize(), buffer->IsEnded(), (void*)buffer );
+	} else {
+		ReleasePlayedSample(buffer);
+	}
 
 #if 0
 	tjs_int64 pos = buffer->GetDecodePosition();
@@ -429,17 +282,17 @@ void tTJSNI_QueueSoundBuffer::Update() {
 	if(!BufferPlaying) return;
 
 	bool continued = true;
-	if (AudioContext) {
+	if (Stream) {
 		if( Paused ) {
-			if( ma_sound_is_playing(&AudioContext->Sound) ) {
-				ma_sound_stop(&AudioContext->Sound);
+			if( Stream->IsPlaying() ) {
+				Stream->StopStream();
 			}
 		} else {
-			if( !ma_sound_is_playing(&AudioContext->Sound) && !AudioContext->SoundEnded ) {
-				ma_sound_start(&AudioContext->Sound);
+			if( !Stream->IsPlaying() && !Stream->AtEnd() ) {
+				Stream->StartStream();
 			}
 		}
-		if (AudioContext->SoundEnded) {
+		if (Stream->AtEnd()) {
 			continued = false;
 		}
 	} else {
@@ -454,7 +307,7 @@ void tTJSNI_QueueSoundBuffer::Update() {
 }
 //---------------------------------------------------------------------------
 void tTJSNI_QueueSoundBuffer::ResetLastCheckedDecodePos() {
-	if( !AudioContext ) return;
+	if( !Stream ) return;
 	// set LastCheckedDecodePos and  LastCheckedTick
 	// we shoud reset these values because the clock sources are usually
 	// not identical.
@@ -538,12 +391,7 @@ void tTJSNI_QueueSoundBuffer::StartPlay()
 		tTJSCriticalSectionHolder holder(BufferCS);
 		Thread->ClearQueue();
 
-		// 既存の AudioContext を破棄
-		if (AudioContext) {
-			ma_sound_uninit(&AudioContext->Sound);
-			delete AudioContext;
-			AudioContext = nullptr;
-		}
+		if (Stream) delete Stream, Stream = nullptr;
 
 		for( tjs_uint i = 0; i < BufferCount; i++ ) {
 			if( Buffer[i] == nullptr ) {
@@ -552,57 +400,35 @@ void tTJSNI_QueueSoundBuffer::StartPlay()
 			Buffer[i]->Create( &InputFormat, UseVisBuffer );
 		}
 
-		// AudioContext を作成
-		AudioContext = new tTVPMiniAudioContext();
-		AudioContext->Owner = this;
-		AudioContext->Channels = InputFormat.Channels;
-		AudioContext->SampleRate = InputFormat.SamplesPerSec;
-		AudioContext->FrameSize = InputFormat.BytesPerSample * InputFormat.Channels;
-		AudioContext->CurrentReadOffset = 0;
-		AudioContext->SoundEnded = false;
-		
-		// フォーマット設定
-		if (InputFormat.IsFloat) {
-			AudioContext->Format = ma_format_f32;
-		} else {
-			switch (InputFormat.BitsPerSample) {
-				case 8:  AudioContext->Format = ma_format_u8;  break;
-				case 16: AudioContext->Format = ma_format_s16; break;
-				case 24: AudioContext->Format = ma_format_s24; break;
-				case 32: AudioContext->Format = ma_format_s32; break;
-				default: AudioContext->Format = ma_format_s16; break;
+		{
+			tTVPAudioStreamParam param;
+			param.Channels   = InputFormat.Channels;		// チャンネル数
+			param.SampleRate = InputFormat.SamplesPerSec;		// サンプリングレート
+			param.BitsPerSample = InputFormat.BitsPerSample;	// サンプル当たりのビット数
+			param.SampleType = astUInt8;
+			if( InputFormat.IsFloat ) {
+				param.SampleType = astFloat32;	// サンプルの形式
+			} else if( param.BitsPerSample == 8 ) {
+				param.SampleType = astUInt8;
+			} else if( param.BitsPerSample == 16 ) {
+				param.SampleType = astInt16;
+			} else {
+				TVPThrowExceptionMessage(TJS_W("Invalid format(BitsPerSample)."));
 			}
-		}
-		
-		// data source を初期化
-		ma_data_source_config dsConfig = ma_data_source_config_init();
-		dsConfig.vtable = &g_data_source_vtable;
-		ma_result result = ma_data_source_init(&dsConfig, &AudioContext->DataSourceBase);
-		if (result != MA_SUCCESS) {
-			delete AudioContext;
-			AudioContext = nullptr;
-			TVPThrowExceptionMessage(TJS_W("Failed to initialize audio data source."));
-		}
-		
-		// ma_sound を data source から初期化
-		ma_engine* engine = GetMiniAudioEngine();
-		if (engine) {
-			result = ma_sound_init_from_data_source(engine, &AudioContext->DataSourceBase, 0, nullptr, &AudioContext->Sound);
-			if (result != MA_SUCCESS) {
-				ma_data_source_uninit(&AudioContext->DataSourceBase);
-				delete AudioContext;
-				AudioContext = nullptr;
-				TVPThrowExceptionMessage(TJS_W("Failed to create audio sound from data source."));
+			Stream = TVPCreateAudioStream( param );
+			if( Stream == nullptr ) {
+				TVPThrowExceptionMessage(TJS_W("Faild to create audio stream."));
 			}
-		} else {
-			delete AudioContext;
-			AudioContext = nullptr;
-			TVPThrowExceptionMessage(TJS_W("Audio engine not initialized."));
-		}
+			Stream->SetCallback([](void *userData, void *data){
+				tTJSNI_QueueSoundBuffer *self = (tTJSNI_QueueSoundBuffer*)userData;
+				tTVPSoundSamplesBuffer *buffer = (tTVPSoundSamplesBuffer*)data;
+				if(self && buffer) self->ReleasePlayedSample(buffer);
+			}, this);
 
-		// reset volume and frequency
-		SetVolumeToStream();
-		SetFrequencyToStream();
+			// reset volume, sound position and frequency
+			SetVolumeToStream();
+			SetFrequencyToStream();
+		}
 
 		// reset filter chain
 		ResetFilterChain();
@@ -620,7 +446,7 @@ void tTJSNI_QueueSoundBuffer::StartPlay()
 
 		// start playing
 		if (!Paused) {
-			ma_sound_start(&AudioContext->Sound);
+			Stream->StartStream();
 		}
 
 		// re-schedule label events
@@ -638,11 +464,10 @@ void tTJSNI_QueueSoundBuffer::StopPlay()
 {
 	if(!Decoder) return;
 
-	if (AudioContext) {
-		ma_sound_stop(&AudioContext->Sound);
-		ma_sound_uninit(&AudioContext->Sound);
-		delete AudioContext;
-		AudioContext = nullptr;
+	if (Stream) {
+		Stream->StopStream();
+		delete Stream;
+		Stream = nullptr;
 	}
 
 	BufferPlaying = false;
@@ -750,10 +575,9 @@ void tTJSNI_QueueSoundBuffer::SetLooping(bool b) {
 //---------------------------------------------------------------------------
 tjs_uint64 tTJSNI_QueueSoundBuffer::GetSamplePosition() {
 	tjs_uint64 result = 0;
-	if( AudioContext ) {
+	if( Stream ) {
 		tTJSCriticalSectionHolder holder(BufferCS);
-		tjs_uint64 engineRate = TVPGetMiniAudioSampleRate();
-		tjs_uint64 pos = ma_sound_get_time_in_pcm_frames(&AudioContext->Sound) * AudioContext->SampleRate / engineRate;
+		tjs_uint64 pos = Stream->GetSamplesPlayed();
 		if( Samples.size() > 0 ) {
 			auto itr = Samples.begin();
 			tTVPSoundSamplesBuffer* sample = *itr;
@@ -781,7 +605,7 @@ void tTJSNI_QueueSoundBuffer::SetSamplePosition(tjs_uint64 pos) {
 //---------------------------------------------------------------------------
 tjs_uint64 tTJSNI_QueueSoundBuffer::GetPosition() {
 	if(!Decoder) return 0L;
-	if(!AudioContext) return 0L;
+	if(!Stream) return 0L;
 	return GetSamplePosition() * 1000 / InputFormat.SamplesPerSec;
 }
 //---------------------------------------------------------------------------
@@ -794,8 +618,8 @@ tjs_uint64 tTJSNI_QueueSoundBuffer::GetTotalTime() {
 }
 //---------------------------------------------------------------------------
 void tTJSNI_QueueSoundBuffer::SetVolumeToStream() {
-	// set current volume/pan to AudioContext
-	if( AudioContext ) {
+	// set current volume/pan to Stream
+	if( Stream ) {
 		tjs_int v;
 		tjs_int mutevol = 100000;
 #ifdef ANDROID
@@ -834,16 +658,12 @@ void tTJSNI_QueueSoundBuffer::SetVolumeToStream() {
 			}
 		}
 #endif
-		// compute volume for each buffer (0-100000 -> 0.0-1.0)
+		// compute volume for each buffer
 		v = (Volume / 10) * (Volume2 / 10) / 1000;
 		v = (v / 10) * (GlobalVolume / 10) / 1000;
 		v = (v / 10) * (mutevol / 10) / 1000;
-		float volume = (float)v / 100000.0f;
-		ma_sound_set_volume(&AudioContext->Sound, volume);
-		
-		// Pan (-100000 to 100000 -> -1.0 to 1.0)
-		float pan = (float)Pan / 100000.0f;
-		ma_sound_set_pan(&AudioContext->Sound, pan);
+		Stream->SetVolume( v );
+		Stream->SetPan( Pan );
 	}
 }
 //---------------------------------------------------------------------------
@@ -893,11 +713,7 @@ void tTJSNI_QueueSoundBuffer::SetGlobalFocusMode(tTVPSoundGlobalFocusMode b) {
 }
 //---------------------------------------------------------------------------
 void tTJSNI_QueueSoundBuffer::SetFrequencyToStream() {
-	if(AudioContext && AudioContext->SampleRate > 0) {
-		// Frequency / SampleRate = pitch ratio
-		float pitch = (float)Frequency / (float)AudioContext->SampleRate;
-		ma_sound_set_pitch(&AudioContext->Sound, pitch);
-	}
+	if(Stream) Stream->SetFrequency( Frequency );
 }
 //---------------------------------------------------------------------------
 void tTJSNI_QueueSoundBuffer::SetFrequency(tjs_int freq) {
@@ -975,10 +791,9 @@ tjs_int tTJSNI_QueueSoundBuffer::GetVisBuffer(tjs_int16 *dest, tjs_int numsample
 
 	tjs_int writtensamples = 0;
 	tjs_uint blockAlign = InputFormat.BytesPerSample * InputFormat.Channels;
-	if( AudioContext ) {
+	if( Stream ) {
 		tTJSCriticalSectionHolder holder(BufferCS);
-		tjs_uint64 engineRate = TVPGetMiniAudioSampleRate();
-		tjs_uint64 pos = ma_sound_get_time_in_pcm_frames(&AudioContext->Sound) * AudioContext->SampleRate / engineRate;
+		tjs_uint64 pos = Stream->GetSamplesPlayed();
 		if( Samples.size() > 0 ) {
 			auto itr = Samples.begin();
 			if( (*itr)->GetSegmentQueue().GetFilteredLength() == 0 ) return 0;

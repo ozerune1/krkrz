@@ -16,8 +16,8 @@ use Compress::Zlib;
 use Digest::MD5  qw(md5 md5_hex md5_base64);
 
 
-$output_tpstub_h = "../../common/tp_stub.h";
-$output_tpstub_cpp = "../../common/tp_stub.cpp";
+$output_tpstub_h = "../../tp_stub/tp_stub.h";
+$output_tpstub_cpp = "../../tp_stub/tp_stub.cpp";
 
 ;# This perl script is VERY VERY complicated so I do never want to see again.
 
@@ -789,6 +789,7 @@ struct IDirect3D9;
 #include <string>
 #include <stdarg.h>
 #include <stdint.h>
++#include <climits>
 
 namespace krkrz_plugin {
 

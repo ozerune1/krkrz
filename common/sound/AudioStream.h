@@ -15,10 +15,10 @@ struct tTVPAudioStreamParam {
 	tjs_uint32 SampleRate;		// サンプリングレート
 	tjs_uint32 BitsPerSample;	// サンプル当たりのビット数
 	TVPAudioSampleType SampleType;	// サンプルの形式
-	tjs_uint32 FramesPerBuffer;		// 1回のキューイングで入れるサンプル数
 };
 
-typedef void (*StreamQueueCallback)(void* userData);
+// バッファ利用後のコールバック
+typedef void (*StreamQueueCallback)(void* userData, void *param);
 
 class iTVPAudioStream
 {
@@ -26,12 +26,15 @@ public:
 	virtual ~iTVPAudioStream(){}
 
 	virtual void SetCallback( StreamQueueCallback callback, void* user ) = 0;
-	virtual void Enqueue( void *data, size_t size, bool last ) = 0;
+	virtual void Enqueue( void *data, size_t size, bool last, void *param ) = 0;
 
 	virtual void ClearQueue() = 0;
 
 	virtual void StartStream() = 0;
 	virtual void StopStream() = 0;
+
+	virtual bool IsPlaying() const = 0; // 再生中
+	virtual bool AtEnd() const = 0;     // 再生終了済み
 
 	virtual tjs_uint64 GetSamplesPlayed() const = 0;
 

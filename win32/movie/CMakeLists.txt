@@ -67,8 +67,7 @@ add_subdirectory( ../../external/movie-player movie-player)
 # ----------------------------------------------------
 
 add_library( krmovie SHARED
-    ../../common/tp_stub.h
-    ../../common/tp_stub.cpp
+    ../../tp_stub/tp_stub.cpp
     asyncio.cpp
     asyncrdr.cpp
     BufferRenderer.cpp
@@ -99,7 +98,7 @@ add_library( krmovie SHARED
 )
 
 target_include_directories( krmovie PRIVATE 
-    ../../common/
+    ../../tp_stub/
     ../
     ../visual
     ../vcproj

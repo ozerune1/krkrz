@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <assert.h>
+#include <system_error>
 
 //---------------------------------------------------------------------------
 // tTVPThread : a wrapper class for thread

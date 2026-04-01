@@ -14,7 +14,7 @@
 
 #include "WaveIntf.h"
 #include "WaveLoopManager.h"
-#include "MiniAudioEngine.h"
+#include "AudioStream.h"
 
 //---------------------------------------------------------------------------
 // Constants
@@ -53,10 +53,9 @@ struct tTVPWaveFormat
 };
 */
 //---------------------------------------------------------------------------
-// tTJSNI_QueueSoundBuffer : Wave Native Instance
+// tTJSNI_PortAudioSoundBuffer : Wave Native Instance
 //---------------------------------------------------------------------------
 class tTVPWaveLoopManager;
-struct tTVPMiniAudioContext;  // miniaudio 関連の内部構造（cpp で定義）
 class tTJSNI_QueueSoundBuffer : public tTJSNI_BaseWaveSoundBuffer
 {
 	typedef  tTJSNI_BaseWaveSoundBuffer inherited;
@@ -65,11 +64,11 @@ class tTJSNI_QueueSoundBuffer : public tTJSNI_BaseWaveSoundBuffer
 	tTVPWaveDecoder * Decoder;
 	class tTVPSoundDecodeThread * Thread;
 
-	// miniaudio サウンド管理
-	tTVPMiniAudioContext *AudioContext;
+	// for sound player
+	iTVPAudioStream *Stream;
 	std::vector<class tTVPSoundSamplesBuffer*> Samples;
 
-	bool IsPlaying();
+	bool IsPlaying() { return Stream && Stream->IsPlaying(); }
 
 	tjs_int64 GetCurrentPlayingPosition();
 
@@ -107,9 +106,6 @@ class tTJSNI_QueueSoundBuffer : public tTJSNI_BaseWaveSoundBuffer
 
 	void ResetLastCheckedDecodePos();
 public:
-	// miniaudio から呼ばれるデータ読み出し（static関数からアクセスされるためpublic）
-	int ReadAudioData(void* pFramesOut, int frameCount);
-
 	bool ThreadCallbackEnabled;
 
 	tTJSNI_QueueSoundBuffer();

@@ -15,7 +15,7 @@
 #include "voMode.h"
 #include "tjsUtils.h"
 
-#include "MiniAudioEngine.h"
+#include "AudioStream.h"
 #include "MoviePlayer.h"
 
 //---------------------------------------------------------------------------

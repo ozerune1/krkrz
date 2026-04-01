@@ -83,7 +83,6 @@ public:
 	TJS_METHOD_DEF(TJS_METHOD_RET_EMPTY, tTJSString, (tTJSVariantString *vstr))   { Ptr = vstr; if(Ptr) Ptr->AddRef(); }
 	TJS_METHOD_DEF(TJS_METHOD_RET_EMPTY, tTJSString, (const tjs_char *str)) { Ptr = TJSAllocVariantString(str); }
 	TJS_METHOD_DEF(TJS_METHOD_RET_EMPTY, tTJSString, (const tjs_nchar *str)) { Ptr = TJSAllocVariantString(str); }
-	TJS_METHOD_DEF_ENV(_WIN32, TJS_METHOD_RET_EMPTY, tTJSString, (const wchar_t *str)) { Ptr = TJSAllocVariantString((const tjs_char*)str); }
 	TJS_METHOD_DEF(TJS_METHOD_RET_EMPTY, tTJSString, (const tTJSStringBufferLength len))
 		{ Ptr = TJSAllocVariantStringBuffer(len.n); }
 	TJS_METHOD_DEF(TJS_METHOD_RET_EMPTY, tTJSString, (tjs_char rch))
@@ -189,25 +188,6 @@ public:
 		Ptr = TJSAllocVariantString(rhs);
 		return *this;
 	}
-
-#if _WIN32
-	TJS_METHOD_DEF_ENV(_WIN32, tTJSString &, operator =, (const wchar_t * rhs))
-	{
-		if(Ptr)
-		{
-			Independ();
-			if(rhs && rhs[0])
-				Ptr->ResetString((tjs_char*)rhs);
-			else
-				Ptr->Release(), Ptr = NULL;
-		}
-		else
-		{
-			Ptr = TJSAllocVariantString((tjs_char*)rhs);
-		}
-		return *this;
-	}
-#endif
 
 #ifdef TJS_SUPPORT_VCL
 	tTJSString & operator =(AnsiString &rhs)

@@ -34,7 +34,7 @@ else
 endif
 
 BUILD_TYPE?=Release
-CMAKEOPT?="-DUSE_SJIS=ON"
+CMAKEOPT?=
 INSTALL_PREFIX?=install
 
 BUILD_PATH=$(shell cmake --preset $(PRESET) -N | grep BUILD_DIR | sed 's/.*BUILD_DIR="\(.*\)"/\1/')

@@ -136,6 +136,17 @@ public:
 		// check wether given name is easily accessible from local OS filesystem.
 		// if true, returns local OS native name. otherwise returns an empty string.
 };
+
+class iTVPStorageMedia2 : public iTVPStorageMedia
+{
+public:
+	virtual bool TJS_INTF_METHOD Remove(const ttstr & name) = 0;
+	    // remove file or directory. "name" is normalized but does not contain media name.
+
+	virtual bool TJS_INTF_METHOD Move(const ttstr & from, const ttstr & to) = 0;
+		// move file or directory. "from" and "to" are normalized but do not contain media name.		
+};
+
 //---------------------------------------------------------------------------
 /*]*/
 
@@ -210,9 +221,15 @@ extern void TVPGetStorageListAt(const ttstr &name, iTVPStorageLister *lister);
 //---------------------------------------------------------------------------
 TJS_EXP_FUNC_DEF(void, TVPRegisterStorageMedia, (iTVPStorageMedia *media));
 	// register storage media
+TJS_EXP_FUNC_DEF(void, TVPRegisterStorageMedia, (iTVPStorageMedia2 *media));
+	// register storage media
 TJS_EXP_FUNC_DEF(void, TVPUnregisterStorageMedia, (iTVPStorageMedia *media));
 	// remove storage media
 
+TJS_EXP_FUNC_DEF(bool, TVPRemoveStorage, (const ttstr &name));
+	// remove file path
+TJS_EXP_FUNC_DEF(bool, TVPMoveStorage, (const ttstr &from, const ttstr &to));
+	// move file path
 
 TJS_EXP_FUNC_DEF(iTJSBinaryStream *, TVPCreateStream, (const ttstr & name, tjs_uint32 flags = 0));
 	// open "name" and return iTJSBinaryStream instance.
@@ -270,7 +287,7 @@ TJS_EXP_FUNC_DEF(bool, TVPIsExistentStorage, (const ttstr &name));
 TJS_EXP_FUNC_DEF(void, TVPClearStorageCaches, ());
 	// clear all internal storage related caches.
 
-extern tjs_uint TVPSegmentCacheLimit; // XP3 segment cache limit, in bytes.
+	extern tjs_uint TVPSegmentCacheLimit; // XP3 segment cache limit, in bytes.
 
 //---------------------------------------------------------------------------
 

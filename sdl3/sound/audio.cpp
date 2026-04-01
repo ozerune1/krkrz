@@ -4,7 +4,7 @@
 #include "SysInitIntf.h"
 #include "app.h"
 
-#include "MiniAudioEngine.h"
+#include "AudioStream.h"
 
 // MiniAudio ベースの AudioStream と連携
 // 以下を define して MINIAUDIO のデバイスを無効にしておく

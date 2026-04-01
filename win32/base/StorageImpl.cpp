@@ -332,8 +332,15 @@ bool TVPRemoveFolder(const ttstr &name)
 }
 //---------------------------------------------------------------------------
 
-
-
+//---------------------------------------------------------------------------
+// TVPMoveFile
+//---------------------------------------------------------------------------
+bool TVPMoveFile(const ttstr &oldname, const ttstr &newname)
+{
+	// rename file ( "oldname" and "newname" are local *native* names )
+	// this must not throw an exception ( return false if error )
+	return 	0!=::MoveFile((const wchar_t*)oldname.c_str(), (const wchar_t*)newname.c_str());
+}
 
 //---------------------------------------------------------------------------
 // TVPGetAppPath

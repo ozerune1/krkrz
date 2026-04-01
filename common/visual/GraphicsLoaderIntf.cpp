@@ -255,7 +255,7 @@ void TVPUnregisterGraphicLoadingHandler(const ttstr & name,
 		TVPGraphicType.Unregister(tTVPGraphicHandlerType(name, loading, header, save, accept, formatdata));
 	}
 }
-#ifdef _WIN32
+#ifdef __WINVER__
 //---------------------------------------------------------------------------
 void TVPRegisterGraphicLoadingHandler(const ttstr & name,
 	tTVPGraphicLoadingHandlerForPlugin loading,

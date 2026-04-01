@@ -82,6 +82,7 @@ public:
 class XAudio2Stream : public iTVPAudioStream, IXAudio2VoiceCallback {
 	XAudio2Device* Owner;
 	IXAudio2SourceVoice* SourceVoice;
+	bool Playing;
 
 	tTVPAudioStreamParam StreamParam;
 	tjs_int AudioVolumeValue;
@@ -123,6 +124,8 @@ public:
 	XAudio2Stream( XAudio2Device* parent, const tTVPAudioStreamParam& param );
 
 	virtual ~XAudio2Stream() override {
+		StopStream();
+		ClearQueue();
 		if( SourceVoice ) {
 			SourceVoice->DestroyVoice();
 			SourceVoice = nullptr;
@@ -138,13 +141,14 @@ public:
 		UserData = user;
 	}
 
-	virtual void Enqueue( void *data, size_t size, bool last ) {
+	virtual void Enqueue( void *data, size_t size, bool last, void *param ) override {
 		if (SourceVoice) {
 			tjs_uint64 frameReaded;
 			XAUDIO2_BUFFER bufferDesc = { 0 };
 			bufferDesc.Flags      = last ? XAUDIO2_END_OF_STREAM : 0;
 			bufferDesc.AudioBytes = size;
 			bufferDesc.pAudioData = reinterpret_cast< BYTE * >( data );
+			bufferDesc.pContext	= param;
 			SourceVoice->SubmitSourceBuffer( &bufferDesc );
 		}
 	}
@@ -159,19 +163,39 @@ public:
 	}
 
 	virtual void ClearQueue() override {
-		if( SourceVoice ) SourceVoice->FlushSourceBuffers();
+		if( SourceVoice ) {
+			SourceVoice->FlushSourceBuffers();
+		}
 	}
 
 	virtual void StartStream() override {
 		if( SourceVoice ) {
 			SourceVoice->Start();
+			Playing = true;
 		}	
 	}
+
 	virtual void StopStream() override {
 		if( SourceVoice ) {
 			SourceVoice->Stop();
-			SourceVoice->FlushSourceBuffers();
+			Playing = false;
 		}
+	}
+
+	virtual bool IsPlaying() const override {
+		if( SourceVoice && Playing) {
+			return !AtEnd();
+		}
+		return false;
+	}
+
+	virtual bool AtEnd() const override {
+		if( SourceVoice ) {
+			XAUDIO2_VOICE_STATE state;
+			SourceVoice->GetState( &state );
+			return state.BuffersQueued == 0;
+		}
+		return true;
 	}
 
 	virtual void SetVolume(tjs_int vol) override {
@@ -233,7 +257,7 @@ public:
 	virtual void STDMETHODCALLTYPE OnStreamEnd() override {}
 	virtual void STDMETHODCALLTYPE OnVoiceProcessingPassEnd() override {}
 	virtual void STDMETHODCALLTYPE OnVoiceProcessingPassStart(UINT32 SamplesRequired) override {}
-	virtual void STDMETHODCALLTYPE OnBufferEnd(void * pBufferContext) override { if( QueueCallback ) QueueCallback( UserData ); }
+	virtual void STDMETHODCALLTYPE OnBufferEnd(void * pBufferContext) override { if( QueueCallback ) QueueCallback( UserData, pBufferContext ); }
 	virtual void STDMETHODCALLTYPE OnBufferStart(void * pBufferContext) override {}
 	virtual void STDMETHODCALLTYPE OnLoopEnd(void * pBufferContext) override {}
 	virtual void STDMETHODCALLTYPE OnVoiceError(void * pBufferContext, HRESULT Error) override {}
@@ -268,7 +292,7 @@ void XAudio2Device::Initialize( int channels, int sampleRate ) {
 	}
 
 	HRESULT hr;
-	if( FAILED( hr = ::CoInitializeEx( nullptr, COINIT_MULTITHREADED ) ) ) {
+	if( FAILED( hr = ::CoInitializeEx( nullptr, COINIT_APARTMENTTHREADED ) ) ) {
 		TVPAddLog(TJS_W("Faild to call CoInitializeEx."));
 		//TVPTerminateSync(1);
 	}
@@ -317,7 +341,7 @@ iTVPAudioStream* XAudio2Device::CreateAudioStream( tTVPAudioStreamParam& param )
 }
 
 XAudio2Stream::XAudio2Stream( XAudio2Device* parent, const tTVPAudioStreamParam& param )
-: Owner( parent ), SourceVoice(nullptr), AudioVolumeValue(VOLUME_MAX),
+: Owner( parent ), SourceVoice(nullptr), Playing(false), AudioVolumeValue(VOLUME_MAX),
   AudioBalanceValue(0), QueueCallback(nullptr), UserData(nullptr)
 { 
 	memset( &StreamParam, 0, sizeof(StreamParam) );

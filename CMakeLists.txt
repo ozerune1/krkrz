@@ -20,6 +20,7 @@ option(MASTER "build master version" OFF)
 option(USE_NEON "use neon" OFF)
 option(USE_SJIS "use sjis" OFF)
 option(USE_OPENGL "use opengl" ON)
+option(USE_MINIAUDIO "use miniaudio for audio mixing" ON)
 
 option(BUILD_WINVER "build windows original version" OFF)
 option(BUILD_LIB "build library version" OFF)
@@ -349,8 +350,11 @@ endif()
 # movieplayer
 
 if(NOT TARGET movieplayer)
-# 常に miniaudio を使用
-option(MOVIEPLAYER_EXTERNAL_MINIAUDIO "use external miniaudio" ON)
+if(USE_MINIAUDIO)
+	option(MOVIEPLAYER_EXTERNAL_MINIAUDIO "use external miniaudio" ON)
+else()
+	option(MOVIEPLAYER_EXTERNAL_SDL "use external sdl" ON)
+endif()
 add_subdirectory(external/movie-player)
 endif()
 

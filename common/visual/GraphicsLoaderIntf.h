@@ -115,7 +115,7 @@ void TVPUnregisterGraphicLoadingHandler(const ttstr & name,
 
 /*[*/
 /* For grahpic load and save */
-#ifdef _WIN32
+#ifdef __WINVER__
 typedef void (*tTVPGraphicLoadingHandlerForPlugin)(void* formatdata,
 	void *callbackdata,
 	tTVPGraphicSizeCallback sizecallback,
@@ -132,15 +132,15 @@ typedef void (*tTVPGraphicSaveHandlerForPlugin)(void* formatdata, void* callback
 #endif
 /*]*/
 
-#ifdef _WIN32
-TJS_EXP_FUNC_DEF_ENV( _WIN32, void, TVPRegisterGraphicLoadingHandler, (const ttstr & name,
+#ifdef __WINVER__
+TJS_EXP_FUNC_DEF_ENV( __WINVER__, void, TVPRegisterGraphicLoadingHandler, (const ttstr & name,
 	tTVPGraphicLoadingHandlerForPlugin loading,
 	tTVPGraphicHeaderLoadingHandlerForPlugin header,
 	tTVPGraphicSaveHandlerForPlugin save,
 	tTVPGraphicAcceptSaveHandler accept,
 	void* formatdata));
 
-TJS_EXP_FUNC_DEF_ENV( _WIN32, void, TVPUnregisterGraphicLoadingHandler, (const ttstr & name,
+TJS_EXP_FUNC_DEF_ENV( __WINVER__, void, TVPUnregisterGraphicLoadingHandler, (const ttstr & name,
 	tTVPGraphicLoadingHandlerForPlugin loading,
 	tTVPGraphicHeaderLoadingHandlerForPlugin header,
 	tTVPGraphicSaveHandlerForPlugin save,
@@ -343,19 +343,19 @@ struct tTVPGraphicHandlerType
 	ttstr Extension;
 	union {
 		tTVPGraphicLoadingHandler LoadHandler;
-#ifdef _WIN32
+#ifdef __WINVER__
 		tTVPGraphicLoadingHandlerForPlugin LoadHandlerPlugin;
 #endif
 	};
 	union {
 		tTVPGraphicHeaderLoadingHandler HeaderHandler;
-#ifdef _WIN32
+#ifdef __WINVER__
 		tTVPGraphicHeaderLoadingHandlerForPlugin HeaderHandlerPlugin;
 #endif
 	};
 	union {
 		tTVPGraphicSaveHandler SaveHandler;
-#ifdef _WIN32
+#ifdef __WINVER__
 		tTVPGraphicSaveHandlerForPlugin SaveHandlerPlugin;
 #endif
 	};
@@ -377,7 +377,7 @@ struct tTVPGraphicHandlerType
 		FormatData = data;
 	}
 
-#ifdef _WIN32
+#ifdef __WINVER__
 	tTVPGraphicHandlerType(const ttstr &ext,
 		tTVPGraphicLoadingHandlerForPlugin loading,
 		tTVPGraphicHeaderLoadingHandlerForPlugin header,
@@ -399,7 +399,7 @@ struct tTVPGraphicHandlerType
 		IsPlugin = ref.IsPlugin;
 		if( IsPlugin )
 		{
-#ifdef _WIN32
+#ifdef __WINVER__
 			LoadHandlerPlugin = ref.LoadHandlerPlugin;
 			HeaderHandlerPlugin = ref.HeaderHandlerPlugin;
 			SaveHandlerPlugin = ref.SaveHandlerPlugin;

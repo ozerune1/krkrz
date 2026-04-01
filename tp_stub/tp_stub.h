@@ -95,15 +95,6 @@ typedef struct tagBITMAPINFO {
 
 #if defined(_WIN32)  && !defined(__GNUC__)
 
-#ifdef __cplusplus
-//typedef wchar_t tjs_char;
-//typedef std::wstring tjs_string;
-typedef char16_t tjs_char;
-typedef std::u16string tjs_string;
-#else
-typedef tjs_uint16 tjs_char;
-#endif
-
 #define TJS_HOST_IS_BIG_ENDIAN 0
 #define TJS_HOST_IS_LITTLE_ENDIAN 1
 
@@ -122,9 +113,6 @@ typedef tjs_uint16 tjs_char;
 #define TJS_64BIT_OS	/* 64bit windows */
 #endif
 
-//#define TJS_W(X) L##X
-#define TJS_W(X) u##X
-
 #else
 
 /* gcc ? */
@@ -137,13 +125,6 @@ typedef tjs_uint16 tjs_char;
  #error "-DHAVE_CONFIG_H and config.h required."
 #endif
 */
-
-#ifdef __cplusplus
-typedef char16_t tjs_char;
-typedef std::u16string tjs_string;
-#else
-typedef tjs_uint16 tjs_char;
-#endif
 
 
 #define TJS_I64_VAL(x) ((tjs_int64)(x##LL))
@@ -160,8 +141,6 @@ typedef tjs_uint16 tjs_char;
 #define TJS_INTF_METHOD
 #define TJS_USERENTRY
 
-#define TJS_W(X) u##X
-
 #endif /* end of defined(_WIN32) && !defined(__GNUC__) */
 
 #define _TJS_W(str)     TJS_W(str)
@@ -170,6 +149,30 @@ typedef tjs_uint16 tjs_char;
 
 
 #define TJS_N(X) X
+
+#ifdef __WINVER__
+
+#ifdef __cplusplus
+typedef wchar_t tjs_char;
+typedef std::wstring tjs_string;
+#else
+typedef tjs_uint16 tjs_char;
+#endif
+
+#define TJS_W(X) L##X
+
+#else
+
+#ifdef __cplusplus
+typedef char16_t tjs_char;
+typedef std::u16string tjs_string;
+#else
+typedef tjs_uint16 tjs_char;
+#endif
+
+#define TJS_W(X) u##X
+
+#endif
 
 
 typedef tjs_int32 tjs_error;
@@ -1889,8 +1892,6 @@ extern void * TVPImportFuncPtr8becefbd52c76c7ecb0ea7b7f50b7915;
 extern void * TVPImportFuncPtr74b9687a3bfd3b2c7abe226efc4225c1;
 extern void * TVPImportFuncPtr7cafc2bf5965b594e60830e3057bbd58;
 extern void * TVPImportFuncPtr80f111939c5694cbf43d07cf0ad1726c;
-extern void * TVPImportFuncPtraef1ea110cf7f9fc9c9426df70b10254;
-extern void * TVPImportFuncPtr6c55f39e7fb076518fed57fa31b96279;
 extern void * TVPImportFuncPtr8dc9cef84191f79b38403a2070952fd4;
 extern void * TVPImportFuncPtr1d42bd1e659b36886c20567497b7ee96;
 extern void * TVPImportFuncPtr0848fbdc7eeddb12c80bcd9c31383a64;
@@ -1982,7 +1983,10 @@ extern void * TVPImportFuncPtrb2f3538284fc2adda2a43272ee654a96;
 extern void * TVPImportFuncPtre0ff899ea4a9cc49a0e3b38deaf93b45;
 extern void * TVPImportFuncPtr4b9c9ac2aafad07af4b16f34e9d4bba2;
 extern void * TVPImportFuncPtrc2e423356d9ca3f26f9c1d294ee9b742;
+extern void * TVPImportFuncPtrdc4638a6d9301e4ef931d919b29069b1;
 extern void * TVPImportFuncPtrc07314686fdf5815ce9b058020da942b;
+extern void * TVPImportFuncPtr581e2f97e39c52288fbe8a7e27db42be;
+extern void * TVPImportFuncPtr5ba849cb06e05d9e4c33fa45c1b2a898;
 extern void * TVPImportFuncPtr45107c5ffc5bf3c84d0ace151e8da8e4;
 extern void * TVPImportFuncPtr4a197be1985d45ee86d5672d24134560;
 extern void * TVPImportFuncPtrdec720a9c3cd2b378f195cf71a9ff8b0;
@@ -4627,32 +4631,6 @@ public:
 		return ((__functype)(TVPImportFuncPtr80f111939c5694cbf43d07cf0ad1726c))(size, buf);
 	}
 
-#ifdef _WIN32
-	tTJSString(const wchar_t * str)
-	{
-		if(!TVPImportFuncPtraef1ea110cf7f9fc9c9426df70b10254)
-		{
-			static char funcname[] = "tTJSString::tTJSString(const wchar_t *)";
-			TVPImportFuncPtraef1ea110cf7f9fc9c9426df70b10254 = TVPGetImportFuncPtr(funcname);
-		}
-		typedef void(STDCALL * __functype)(tTJSString *, const wchar_t *);
-		((__functype)(TVPImportFuncPtraef1ea110cf7f9fc9c9426df70b10254))(this, str);
-	}
-#endif // _WIN32
-
-#ifdef _WIN32
-	tTJSString & operator =(const wchar_t * rhs)
-	{
-		if(!TVPImportFuncPtr6c55f39e7fb076518fed57fa31b96279)
-		{
-			static char funcname[] = "tTJSString & tTJSString::operator =(const wchar_t *)";
-			TVPImportFuncPtr6c55f39e7fb076518fed57fa31b96279 = TVPGetImportFuncPtr(funcname);
-		}
-		typedef tTJSString &(STDCALL * __functype)(tTJSString *, const wchar_t *);
-		return ((__functype)(TVPImportFuncPtr6c55f39e7fb076518fed57fa31b96279))(this, rhs);
-	}
-#endif // _WIN32
-
 	
 	friend tTJSString operator + (const tjs_char *lhs, const tTJSString &rhs);
 	
@@ -4716,6 +4694,17 @@ public:
 		// check wether given name is easily accessible from local OS filesystem.
 		// if true, returns local OS native name. otherwise returns an empty string.
 };
+
+class iTVPStorageMedia2 : public iTVPStorageMedia
+{
+public:
+	virtual bool TJS_INTF_METHOD Remove(const ttstr & name) = 0;
+	    // remove file or directory. "name" is normalized but does not contain media name.
+
+	virtual bool TJS_INTF_METHOD Move(const ttstr & from, const ttstr & to) = 0;
+		// move file or directory. "from" and "to" are normalized but do not contain media name.		
+};
+
 //---------------------------------------------------------------------------
 
 
@@ -5020,7 +5009,7 @@ typedef bool (*tTVPGraphicAcceptSaveHandler)(void* formatdata, const ttstr & typ
 
 
 /* For grahpic load and save */
-#ifdef _WIN32
+#ifdef __WINVER__
 typedef void (*tTVPGraphicLoadingHandlerForPlugin)(void* formatdata,
 	void *callbackdata,
 	tTVPGraphicSizeCallback sizecallback,
@@ -7433,6 +7422,16 @@ inline void TVPRegisterStorageMedia(iTVPStorageMedia * media)
 	typedef void (STDCALL * __functype)(iTVPStorageMedia *);
 	((__functype)(TVPImportFuncPtrc2e423356d9ca3f26f9c1d294ee9b742))(media);
 }
+inline void TVPRegisterStorageMedia(iTVPStorageMedia2 * media)
+{
+	if(!TVPImportFuncPtrdc4638a6d9301e4ef931d919b29069b1)
+	{
+		static char funcname[] = "void ::TVPRegisterStorageMedia(iTVPStorageMedia2 *)";
+		TVPImportFuncPtrdc4638a6d9301e4ef931d919b29069b1 = TVPGetImportFuncPtr(funcname);
+	}
+	typedef void (STDCALL * __functype)(iTVPStorageMedia2 *);
+	((__functype)(TVPImportFuncPtrdc4638a6d9301e4ef931d919b29069b1))(media);
+}
 inline void TVPUnregisterStorageMedia(iTVPStorageMedia * media)
 {
 	if(!TVPImportFuncPtrc07314686fdf5815ce9b058020da942b)
@@ -7442,6 +7441,26 @@ inline void TVPUnregisterStorageMedia(iTVPStorageMedia * media)
 	}
 	typedef void (STDCALL * __functype)(iTVPStorageMedia *);
 	((__functype)(TVPImportFuncPtrc07314686fdf5815ce9b058020da942b))(media);
+}
+inline bool TVPRemoveStorage(const ttstr & name)
+{
+	if(!TVPImportFuncPtr581e2f97e39c52288fbe8a7e27db42be)
+	{
+		static char funcname[] = "bool ::TVPRemoveStorage(const ttstr &)";
+		TVPImportFuncPtr581e2f97e39c52288fbe8a7e27db42be = TVPGetImportFuncPtr(funcname);
+	}
+	typedef bool (STDCALL * __functype)(const ttstr &);
+	return ((__functype)(TVPImportFuncPtr581e2f97e39c52288fbe8a7e27db42be))(name);
+}
+inline bool TVPMoveStorage(const ttstr & from , const ttstr & to)
+{
+	if(!TVPImportFuncPtr5ba849cb06e05d9e4c33fa45c1b2a898)
+	{
+		static char funcname[] = "bool ::TVPMoveStorage(const ttstr &,const ttstr &)";
+		TVPImportFuncPtr5ba849cb06e05d9e4c33fa45c1b2a898 = TVPGetImportFuncPtr(funcname);
+	}
+	typedef bool (STDCALL * __functype)(const ttstr &, const ttstr &);
+	return ((__functype)(TVPImportFuncPtr5ba849cb06e05d9e4c33fa45c1b2a898))(from, to);
 }
 inline iTJSBinaryStream * TVPCreateStream(const ttstr & name , tjs_uint32 flags = 0)
 {
@@ -8649,7 +8668,7 @@ inline IDirectSound * TVPGetDirectSound()
 	return ((__functype)(TVPImportFuncPtrc1b52e8f3578d11f369552a887e13c5b))();
 }
 #endif
-#ifdef _WIN32
+#ifdef __WINVER__
 inline void TVPRegisterGraphicLoadingHandler(const ttstr & name , tTVPGraphicLoadingHandlerForPlugin loading , tTVPGraphicHeaderLoadingHandlerForPlugin header , tTVPGraphicSaveHandlerForPlugin save , tTVPGraphicAcceptSaveHandler accept , void * formatdata)
 {
 	if(!TVPImportFuncPtrb94ead6de9316bc65758c5aefb564078)
@@ -8661,7 +8680,7 @@ inline void TVPRegisterGraphicLoadingHandler(const ttstr & name , tTVPGraphicLoa
 	((__functype)(TVPImportFuncPtrb94ead6de9316bc65758c5aefb564078))(name, loading, header, save, accept, formatdata);
 }
 #endif
-#ifdef _WIN32
+#ifdef __WINVER__
 inline void TVPUnregisterGraphicLoadingHandler(const ttstr & name , tTVPGraphicLoadingHandlerForPlugin loading , tTVPGraphicHeaderLoadingHandlerForPlugin header , tTVPGraphicSaveHandlerForPlugin save , tTVPGraphicAcceptSaveHandler accept , void * formatdata)
 {
 	if(!TVPImportFuncPtr8a35be936d2aca049e398a081e511c97)

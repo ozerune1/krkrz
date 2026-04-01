@@ -238,9 +238,9 @@ public:
 	}
 
 	// 再生用データの投入（吉里吉里側から）
-	virtual void Enqueue( void *data, size_t size, bool last ) override {
+	virtual void Enqueue( void *data, size_t size, bool last, void *param ) override {
 		std::lock_guard<std::mutex> lock(data_mutex);
-		data_queue.push(DataBuffer(data,size,last));
+		data_queue.push(DataBuffer(data,size,last,param));
 	}
 
 	virtual tjs_uint64 GetSamplesPlayed() const override {
@@ -249,8 +249,13 @@ public:
 
 	virtual void ClearQueue() override {
 		std::lock_guard<std::mutex> lock(data_mutex);
-		std::queue<DataBuffer> empty;
-		data_queue.swap(empty);
+		while (data_queue.size() > 0) {
+			const DataBuffer &data = data_queue.front();
+			if (CallbackFunc) {
+				CallbackFunc( UserData, data.param );
+			}
+			data_queue.pop();
+		}
 		data_position = 0;
 	}
 
@@ -260,6 +265,14 @@ public:
 
 	virtual void StopStream() override{ 
 	    ma_sound_stop(&sound);
+	}
+
+	virtual bool IsPlaying() const override {
+		return ma_sound_is_playing(&sound) != 0;
+	}
+
+	virtual bool AtEnd() const override {
+		return ma_sound_at_end(&sound) == MA_TRUE;
 	}
 
 	virtual void SetVolume(tjs_int vol) override {
@@ -317,10 +330,10 @@ public:
 				if (data.last) {
 					last = true;
 				}
-				data_queue.pop();
 				if (CallbackFunc) {
-					CallbackFunc( UserData );
+					CallbackFunc( UserData, data.param );
 				}
+				data_queue.pop();
 				dst += remain;
 				count += (remain / FrameSize);
 				data_position = 0;
@@ -330,7 +343,8 @@ public:
 		if (pFramesRead) {
 			*pFramesRead = count;
 		}
-		return last ? MA_AT_END : MA_SUCCESS;
+		//TVPLOG_DEBUG("ReadData: requested frames={}, provided frames={}, last={}", frameCount, count, last);
+		return (last || count == 0) ? MA_AT_END : MA_SUCCESS;
 	}
 
 private:
@@ -349,7 +363,8 @@ private:
 		void *data;
 		size_t size;
 		bool last;
-		DataBuffer(void *data, size_t size, bool last) : data(data), size(size), last(last) {}
+		void *param;
+		DataBuffer(void *data, size_t size, bool last, void *param) : data(data), size(size), last(last), param(param) {}
 	};
 
 	std::queue<DataBuffer> data_queue;

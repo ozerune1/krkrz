@@ -289,7 +289,7 @@ bool TVPRemoveFolder(const ttstr &name)
 //---------------------------------------------------------------------------
 
 //---------------------------------------------------------------------------
-// TVPMoveFolder
+// TVPMoveFile
 //---------------------------------------------------------------------------
 bool TVPMoveFile(const ttstr &oldname, const ttstr &newname)
 {
@@ -702,16 +702,10 @@ TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/moveFile)
 
 		TVPLOG_DEBUG("move from:{} to:{}", fromFile, toFile);
 
-		// ローカル名
-		ttstr _fromFile = TVPGetLocallyAccessibleName(fromFile);
-		ttstr   _toFile = TVPGetLocallyAccessibleName(toFile);
-
-		if (_fromFile.length() && _toFile.length()) {
-			ret = LocalFileSystem->MoveFile(_fromFile.c_str(), _toFile.c_str());
-			if (ret) {
-				TVPClearAutoPathCacheFile(fromFile);
-				TVPAddAutoPathCacheFile(toFile);
-			}
+		if (TVPMoveStorage(fromFile, toFile)) {
+			ret = true;
+			TVPClearAutoPathCacheFile(fromFile);
+			TVPAddAutoPathCacheFile(toFile);
 		}
 	}
 	if (result) {
@@ -731,13 +725,10 @@ TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/deleteFile)
 	if (path && path->Type() == tvtString) {
 		// 正規パス
 		ttstr pathFile = TVPNormalizeStorageName(path->AsString());
-		// ローカルパス
-		ttstr _pathFile = TVPGetLocallyAccessibleName(pathFile);
-		if (_pathFile.length()) {
-			ret = LocalFileSystem->RemoveFile(_pathFile.c_str());
-			if (ret) {
-				TVPClearAutoPathCacheFile(pathFile);
-			}
+		TVPLOG_DEBUG("delete file:{}", pathFile);
+		if (TVPRemoveStorage(pathFile)) {
+			ret = true;
+			TVPClearAutoPathCacheFile(pathFile);
 		}
 	}
 

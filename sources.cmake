@@ -366,20 +366,26 @@ set(KRKRZ_LIB_SDL3
 	SDL3::SDL3
 )
 
-# 常に miniaudio を使用
-list(APPEND KRKRZ_SRC_SDL3
-	common/sound/MiniAudioEngine.cpp
-	sdl3/sound/audio.cpp
-)
-
-list(APPEND KRKRZ_SRC_WIN32
-	common/sound/MiniAudioEngine.cpp
-)
-
-if (BUILD_SDL)
-	list(APPEND KRKRZ_DEFINES
-		# miniaudio dont use device io (SDL3 handles device I/O)
-		MA_NO_DEVICE_IO
+if(USE_MINIAUDIO)
+	list(APPEND KRKRZ_SRC_WIN32
+		common/sound/AudioStream.cpp
+	)
+	list(APPEND KRKRZ_SRC_SDL3
+		common/sound/AudioStream.cpp
+		sdl3/sound/audio.cpp
+	)
+	if (BUILD_SDL)
+		list(APPEND KRKRZ_DEFINES
+			# miniaudio dont use device io
+			MA_NO_DEVICE_IO
+		)
+	endif()
+else()
+	list(APPEND KRKRZ_SRC_WIN32
+		win32/XAudio2AudioStream.cpp
+	)
+	list(APPEND KRKRZ_SRC_SDL3
+		sdl3/sound/AudioStream.cpp
 	)
 endif()
 

@@ -75,14 +75,7 @@ typedef struct tagBITMAPINFO {
 
 #if defined(_WIN32)  && !defined(__GNUC__)
 
-#ifdef __cplusplus
-typedef wchar_t tjs_char;
-typedef std::wstring tjs_string;
-//typedef char16_t tjs_char;
-//typedef std::u16string tjs_string;
-#else
-typedef tjs_uint16 tjs_char;
-#endif
+#warning "use Windows MSVC tp_stub.h"
 
 #define TJS_HOST_IS_BIG_ENDIAN 0
 #define TJS_HOST_IS_LITTLE_ENDIAN 1
@@ -102,9 +95,6 @@ typedef tjs_uint16 tjs_char;
 #define TJS_64BIT_OS	/* 64bit windows */
 #endif
 
-#define TJS_W(X) L##X
-//#define TJS_W(X) u##X
-
 #else
 
 /* gcc ? */
@@ -117,13 +107,6 @@ typedef tjs_uint16 tjs_char;
  #error "-DHAVE_CONFIG_H and config.h required."
 #endif
 */
-
-#ifdef __cplusplus
-typedef char16_t tjs_char;
-typedef std::u16string tjs_string;
-#else
-typedef tjs_uint16 tjs_char;
-#endif
 
 
 #define TJS_I64_VAL(x) ((tjs_int64)(x##LL))
@@ -140,8 +123,6 @@ typedef tjs_uint16 tjs_char;
 #define TJS_INTF_METHOD
 #define TJS_USERENTRY
 
-#define TJS_W(X) u##X
-
 #endif /* end of defined(_WIN32) && !defined(__GNUC__) */
 
 #define _TJS_W(str)     TJS_W(str)
@@ -150,6 +131,30 @@ typedef tjs_uint16 tjs_char;
 
 
 #define TJS_N(X) X
+
+#ifdef __WINVER__
+
+#ifdef __cplusplus
+typedef wchar_t tjs_char;
+typedef std::wstring tjs_string;
+#else
+typedef tjs_uint16 tjs_char;
+#endif
+
+#define TJS_W(X) L##X
+
+#else
+
+#ifdef __cplusplus
+typedef char16_t tjs_char;
+typedef std::u16string tjs_string;
+#else
+typedef tjs_uint16 tjs_char;
+#endif
+
+#define TJS_W(X) u##X
+
+#endif
 
 
 typedef tjs_int32 tjs_error;

@@ -45,7 +45,7 @@ public:
     }
 };
 
-class SDLStorageMedia : public iTVPStorageMedia
+class SDLStorageMedia : public iTVPStorageMedia2
 {
 	tjs_int RefCount;
 	ttstr MediaName;
@@ -190,6 +190,37 @@ public:
 
     virtual void TJS_INTF_METHOD GetLocallyAccessibleName(ttstr &name) override { 
         name = "";
+    }
+
+	virtual bool TJS_INTF_METHOD Remove(const ttstr & name) {
+
+        tjs_string fname;
+        tjs_string dname;
+        convName(name, dname, fname);
+
+        std::string path_utf8;
+        TVPUtf16ToUtf8(path_utf8, fname.c_str());
+
+        return SDL_RemoveStoragePath(Storage, path_utf8.c_str());
+    }
+
+	virtual bool TJS_INTF_METHOD Move(const ttstr & from, const ttstr & to) {
+
+        tjs_string from_fname;
+        tjs_string from_dname;
+        convName(from, from_dname, from_fname);
+
+        tjs_string to_fname;
+        tjs_string to_dname;
+        convName(to, to_dname, to_fname);
+
+        std::string from_path_utf8;
+        TVPUtf16ToUtf8(from_path_utf8, from_fname.c_str());
+
+        std::string to_path_utf8;
+        TVPUtf16ToUtf8(to_path_utf8, to_fname.c_str());
+
+        return SDL_RenameStoragePath(Storage, from_path_utf8.c_str(), to_path_utf8.c_str());
     }
 };
 
