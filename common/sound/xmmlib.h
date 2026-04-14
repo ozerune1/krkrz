@@ -44,7 +44,17 @@
 #define _XMMLIB_H_INCLUDED
 
 #include "tjsCommHead.h"
-#if defined(_M_IX86)||defined(_M_X64)
+
+// sound SIMD の対応アーキテクチャ判定。x86/x86_64 と ARM/ARM64 は排他 (同一
+// バイナリに両方は混ざらない) なので #elif で定義する。x86 側は MSVC / GCC /
+// Clang 共通、ARM 側は __ARM_NEON (armv7 + NEON) または __aarch64__ (armv8)。
+#if defined(_M_IX86) || defined(_M_X64) || defined(__i386__) || defined(__x86_64__)
+#define TVP_SOUND_HAS_X86_SIMD 1
+#elif defined(__ARM_NEON) || defined(__aarch64__)
+#define TVP_SOUND_HAS_ARM_SIMD 1
+#endif
+
+#if defined(TVP_SOUND_HAS_X86_SIMD)
 
 //---------------------------------------------------------------------------
 

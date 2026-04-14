@@ -13,15 +13,24 @@ extern unsigned char TVPOpacityOnOpacityTable65[65*256];
 
 // tshift = 6 : 65
 // tshift = 8 : normal(255)
+//
+// ColorMap 非 HDA ファミリの結果 alpha は C ref では 0 固定 (`& 0xff00ff` と
+// `& 0xff00` で RGB のみ合成して alpha バイトを落としている)。SSE2 の素朴な
+// 4ch 全 blend は dst/color 由来の alpha が残ってしまうため、出力側で
+// `& 0x00ffffff` マスクを噛ませて byte-exact を維持する。Phase A (commit
+// 4504820e) の非 HDA alpha 修正と同じ方針。
 template<int tshift>
 struct sse2_apply_color_map_xx_functor {
 	__m128i mc_;
 	__m128i color_;
 	const __m128i zero_;
-	inline sse2_apply_color_map_xx_functor( tjs_uint32 color ) : zero_(_mm_setzero_si128()) {
+	const __m128i rgb_mask_;
+	inline sse2_apply_color_map_xx_functor( tjs_uint32 color ) :
+		zero_(_mm_setzero_si128()), rgb_mask_(_mm_set1_epi32(0x00ffffff)) {
 		mc_ = _mm_cvtsi32_si128( color );
 		mc_ = _mm_shuffle_epi32( mc_, _MM_SHUFFLE( 0, 0, 0, 0 )  );
-		color_ = mc_;
+		// opaque fast path 用の color_ は alpha を 0 にしておく (非 HDA 仕様)
+		color_ = _mm_and_si128( mc_, rgb_mask_ );
 		mc_ = _mm_unpacklo_epi8( mc_, zero_ );
 	}
 	inline tjs_uint32 operator()( tjs_uint32 d, tjs_uint8 s ) const {
@@ -35,7 +44,8 @@ struct sse2_apply_color_map_xx_functor {
 		mc = _mm_srai_epi16( mc, tshift );	// c >>= tshift
 		md = _mm_add_epi16( md, mc );	// d += c
 		md = _mm_packus_epi16( md, zero_ );
-		return _mm_cvtsi128_si32( md );
+		// 非 HDA 仕様: 結果 alpha を 0 に
+		return (tjs_uint32)_mm_cvtsi128_si32( md ) & 0x00ffffffu;
 	}
 	inline __m128i operator()( __m128i md1, __m128i mo1 ) const {
 		__m128i md2 = md1;
@@ -57,17 +67,21 @@ struct sse2_apply_color_map_xx_functor {
 		mc = _mm_srai_epi16( mc, tshift );	// c >>= tshift
 		md2 = _mm_add_epi16( md2, mc );		// d += c
 
-		return _mm_packus_epi16( md1, md2 );
+		// 非 HDA 仕様: 結果 alpha を 0 に
+		return _mm_and_si128( _mm_packus_epi16( md1, md2 ), rgb_mask_ );
 	}
 };
 struct sse2_apply_color_map256_functor {
 	__m128i mc_;
 	__m128i color_;
 	const __m128i zero_;
-	inline sse2_apply_color_map256_functor( tjs_uint32 color ) : zero_(_mm_setzero_si128()) {
+	const __m128i rgb_mask_;
+	inline sse2_apply_color_map256_functor( tjs_uint32 color ) :
+		zero_(_mm_setzero_si128()), rgb_mask_(_mm_set1_epi32(0x00ffffff)) {
 		mc_ = _mm_cvtsi32_si128( color );
 		mc_ = _mm_shuffle_epi32( mc_, _MM_SHUFFLE( 0, 0, 0, 0 )  );
-		color_ = mc_;
+		// opaque fast path 用の color_ は alpha を 0 にしておく (非 HDA 仕様)
+		color_ = _mm_and_si128( mc_, rgb_mask_ );
 		mc_ = _mm_unpacklo_epi8( mc_, zero_ );
 	}
 	inline tjs_uint32 operator()( tjs_uint32 d, tjs_uint8 s ) const {
@@ -81,7 +95,8 @@ struct sse2_apply_color_map256_functor {
 		mc = _mm_srli_epi16( mc, 8 );	// c >>= tshift
 		md = _mm_add_epi8( md, mc );	// d += c
 		md = _mm_packus_epi16( md, zero_ );
-		return _mm_cvtsi128_si32( md );
+		// 非 HDA 仕様: 結果 alpha を 0 に
+		return (tjs_uint32)_mm_cvtsi128_si32( md ) & 0x00ffffffu;
 	}
 	inline __m128i operator()( __m128i md1, __m128i mo1 ) const {
 		__m128i md2 = md1;
@@ -103,7 +118,8 @@ struct sse2_apply_color_map256_functor {
 		mc = _mm_srli_epi16( mc, 8 );	// c >>= tshift
 		md2 = _mm_add_epi8( md2, mc );		// d += c
 
-		return _mm_packus_epi16( md1, md2 );
+		// 非 HDA 仕様: 結果 alpha を 0 に
+		return _mm_and_si128( _mm_packus_epi16( md1, md2 ), rgb_mask_ );
 	}
 };
 
@@ -120,7 +136,7 @@ struct sse2_apply_color_map_xx_o_functor : tbase {
 	}
 	inline __m128i operator()( __m128i md1, tjs_uint32 s ) const {
 		__m128i mo = _mm_cvtsi32_si128( s );
-		mo = _mm_unpacklo_epi8( mo, zero_ );	// 0000 0o 0o 0o 0o
+		mo = _mm_unpacklo_epi8( mo, this->zero_ );	// 0000 0o 0o 0o 0o
 		mo = _mm_mullo_epi16( mo, opa_ );
 		mo = _mm_srli_epi16( mo, 8 );
 		mo = _mm_unpacklo_epi16( mo, mo );	// 1 1 2 2 3 3 4 4
@@ -135,7 +151,7 @@ struct sse2_apply_color_map_xx_straight_functor : tbase {
 	}
 	inline __m128i operator()( __m128i md1, tjs_uint32 s ) const {
 		__m128i mo = _mm_cvtsi32_si128( s );
-		mo = _mm_unpacklo_epi8( mo, zero_ );	// 0000 0o 0o 0o 0o
+		mo = _mm_unpacklo_epi8( mo, this->zero_ );	// 0000 0o 0o 0o 0o
 		mo = _mm_unpacklo_epi16( mo, mo );		// 1 1 2 2 3 3 4 4
 		return tbase::operator()( md1, mo );
 	}
@@ -192,11 +208,13 @@ struct sse2_apply_color_map65_d_functor {
 		opa = _mm_unpacklo_epi16( opa, zero_ );	// 000s 000s 000s 000s
 		opa = _mm_slli_epi32( opa, 8 );			// <<= 8
 		da = _mm_or_si128( da, opa );
+		alignas(16) tjs_uint32 da_u32[4];
+		_mm_store_si128( (__m128i*)da_u32, da );
 		__m128i ma1 = _mm_set_epi32(
-			TVPOpacityOnOpacityTable65[da.m128i_u32[3]],
-			TVPOpacityOnOpacityTable65[da.m128i_u32[2]],
-			TVPOpacityOnOpacityTable65[da.m128i_u32[1]],
-			TVPOpacityOnOpacityTable65[da.m128i_u32[0]]);
+			TVPOpacityOnOpacityTable65[da_u32[3]],
+			TVPOpacityOnOpacityTable65[da_u32[2]],
+			TVPOpacityOnOpacityTable65[da_u32[1]],
+			TVPOpacityOnOpacityTable65[da_u32[0]]);
 
 		ma1 = _mm_packs_epi32( ma1, ma1 );		// 0 1 2 3 0 1 2 3
 		ma1 = _mm_unpacklo_epi16( ma1, ma1 );	// 0 0 1 1 2 2 3 3
@@ -308,11 +326,11 @@ typedef sse2_apply_color_map_xx_o_functor<sse2_apply_color_map_xx_a_functor<6> >
 typedef sse2_apply_color_map_xx_o_functor<sse2_apply_color_map_xx_a_functor<8> > sse2_apply_color_map_ao_functor;
 
 
-template<typename functor,int topaque>
+template<typename functor, tjs_uint32 topaque>
 static inline void apply_color_map_branch_func_sse2( tjs_uint32 *dest, const tjs_uint8 *src, tjs_int len, const functor& func ) {
 	if( len <= 0 ) return;
 
-	tjs_int count = (tjs_int)((unsigned)dest & 0xF);
+	tjs_int count = (tjs_int)((uintptr_t)dest & 0xF);
 	if( count ) {
 		count = (16 - count)>>2;
 		count = count > len ? len : count;
@@ -346,7 +364,7 @@ template<typename functor>
 static inline void apply_color_map_func_sse2( tjs_uint32 *dest, const tjs_uint8 *src, tjs_int len, const functor& func ) {
 	if( len <= 0 ) return;
 
-	tjs_int count = (tjs_int)((unsigned)dest & 0xF);
+	tjs_int count = (tjs_int)((uintptr_t)dest & 0xF);
 	if( count ) {
 		count = (16 - count)>>2;
 		count = count > len ? len : count;

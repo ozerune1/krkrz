@@ -182,6 +182,8 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
     SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+    // Canvas/Shader等でステンシルバッファを使用するため8bit確保
+    SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 #endif
 
     // ログレベル設定
@@ -222,9 +224,15 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
     InitStorageSystem(orgname, appname);
 
     SDL3Application *app = GetSDL3Application();
-	app->SetTitle(TJS_W("krkrz"));
+    app->SetTitle(TJS_W("krkrz"));
 	app->InitArgs(argc, argv);
-    app->InitPath();
+
+    if (!app->InitPath()) {
+        TVPLOG_ERROR("Failed to initialize paths");
+        delete app;
+        DoneStorageSystem();
+        return SDL_APP_FAILURE;
+    }
 
     app->AppInit();
 
@@ -234,7 +242,8 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
 	if (!app->InitializeApplication()) {
 		TVPLOG_ERROR("failed to initialize application");
         delete app;
-		DoneAudioSystem();
+        DoneAudioSystem();
+        DoneStorageSystem();
         return SDL_APP_FAILURE;
 	}
 
@@ -254,17 +263,16 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
 
 void SDL_AppQuit(void *appstate, SDL_AppResult result) 
 {
-    SDL3Application *app = static_cast<SDL3Application *>(appstate);
     if (joystick) {
         SDL_CloseJoystick(joystick);
+        joystick = NULL;
     }
 
-    TVPSystemUninit();
-
-    DoneAudioSystem();
-    DoneStorageSystem();
-
-	if (app) {
+    SDL3Application *app = static_cast<SDL3Application *>(appstate);
+    if (app) {
+        TVPSystemUninit();
+        DoneAudioSystem();
+        DoneStorageSystem();
         app->AppQuit();
         delete app;
     }

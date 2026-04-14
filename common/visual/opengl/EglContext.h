@@ -29,7 +29,6 @@ private:
 	int mRefCount;
 
 	void Destroy();
-	bool TryMinimumLevelInitialize();
 
 	void GetConfigAttribute( EGLConfig config );
 

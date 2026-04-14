@@ -232,6 +232,7 @@ tTVPLocalFileStream::Open(const char *path, tjs_uint32 flag)
 		break;
 	}
 	
+	TVPLOG_DEBUG("Opening file: {} with mode: {}", path, mode);
 	io_stream = SDL_IOFromFile(path, mode);
 	if (io_stream && is_read_mode) {
 		// Get file size for read mode

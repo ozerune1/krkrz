@@ -17,6 +17,7 @@
 *.map
 .vs/
 .vscode/
+.claude/
 *~
 Debug
 Release

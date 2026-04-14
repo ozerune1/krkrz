@@ -46,21 +46,19 @@ extern void InterleaveOverlappingWindow(float * __restrict dest, const float * _
 extern void DeinterleaveApplyingWindow(float * __restrict dest[], const float * __restrict src,
 					float * __restrict win, int numch, size_t destofs, size_t len);
 
-#ifdef _WIN32
+#include "xmmlib.h"  // TVP_SOUND_HAS_X86_SIMD / TVP_SOUND_HAS_ARM_SIMD の定義
 
-#if defined(_M_IX86) || defined(_M_X64) || defined(__i386__) || defined(__x86_64__)
-#include "tvpgl_ia32_intf.h"
-#endif
-#include "DetectCPU.h"
-
-#if defined(_M_IX86)||defined(_M_X64)
+#if defined(TVP_SOUND_HAS_X86_SIMD)
+#include "tvpgl_ia32_intf.h"  // TVP_CPU_HAS_SSE / TVP_CPU_HAS_MMX / TVP_CPU_HAS_CMOV
+#include "cpu_detect.h"       // TVPCPUType (extern "C")
 extern void InterleaveOverlappingWindow_sse(float * __restrict dest, const float * __restrict const * __restrict src,
 					float * __restrict win, int numch, size_t srcofs, size_t len);
 extern void DeinterleaveApplyingWindow_sse(float * __restrict dest[], const float * __restrict src,
 					float * __restrict win, int numch, size_t destofs, size_t len);
 #endif
-
-#endif
+// NEON dispatch は PhaseVocoderDSP 内では deinterleave / interleave のみ利用。
+// ProcessCore_sse 相当の NEON 版は Phase SB2-c で検討する (現状 ARM は scalar
+// ProcessCore に落ちる)。
 
 //---------------------------------------------------------------------------
 tRisaPhaseVocoderDSP::tRisaPhaseVocoderDSP(
@@ -320,7 +318,7 @@ bool tRisaPhaseVocoderDSP::GetOutputBuffer(
 //---------------------------------------------------------------------------
 tRisaPhaseVocoderDSP::tStatus tRisaPhaseVocoderDSP::Process()
 {
-#if defined(_WIN32) && (defined(_M_IX86)||defined(_M_X64))
+#if defined(TVP_SOUND_HAS_X86_SIMD)
 	bool use_sse =
 			(TVPCPUType & TVP_CPU_HAS_MMX) &&
 			(TVPCPUType & TVP_CPU_HAS_SSE) &&
@@ -385,7 +383,7 @@ tRisaPhaseVocoderDSP::tStatus tRisaPhaseVocoderDSP::Process()
 		InputBuffer.GetReadPointer(FrameSize*Channels, p1, p1len, p2, p2len);
 		p1len /= Channels;
 		p2len /= Channels;
-#if defined(_WIN32) && (defined(_M_IX86)||defined(_M_X64))
+#if defined(TVP_SOUND_HAS_X86_SIMD)
 		if( use_sse ) {
 			DeinterleaveApplyingWindow_sse(AnalWork, p1, InputWindow, Channels, 0, p1len);
 			if(p2)
@@ -395,6 +393,10 @@ tRisaPhaseVocoderDSP::tStatus tRisaPhaseVocoderDSP::Process()
 			if(p2)
 				DeinterleaveApplyingWindow(AnalWork, p2, InputWindow + p1len, Channels, p1len, p2len);
 		}
+#elif defined(TVP_SOUND_HAS_ARM_SIMD)
+		DeinterleaveApplyingWindow_neon(AnalWork, p1, InputWindow, Channels, 0, p1len);
+		if(p2)
+			DeinterleaveApplyingWindow_neon(AnalWork, p2, InputWindow + p1len, Channels, p1len, p2len);
 #else
 		DeinterleaveApplyingWindow(AnalWork, p1, InputWindow, Channels, 0, p1len);
 		if(p2)
@@ -410,7 +412,7 @@ tRisaPhaseVocoderDSP::tStatus tRisaPhaseVocoderDSP::Process()
 		//------------------------------------------------
 
 		// 演算の根幹部分を実行する
-#if defined(_WIN32) && (defined(_M_IX86)||defined(_M_X64))
+#if defined(TVP_SOUND_HAS_X86_SIMD)
 		if(use_sse) ProcessCore_sse(ch);
 		else ProcessCore(ch);
 #else
@@ -426,7 +428,7 @@ tRisaPhaseVocoderDSP::tStatus tRisaPhaseVocoderDSP::Process()
 		OutputBuffer.GetWritePointer(FrameSize*Channels, p1, p1len, p2, p2len);
 		p1len /= Channels;
 		p2len /= Channels;
-#if defined(_WIN32) && (defined(_M_IX86)||defined(_M_X64))
+#if defined(TVP_SOUND_HAS_X86_SIMD)
 		if( use_sse ) {
 			InterleaveOverlappingWindow_sse(p1, SynthWork, OutputWindow, Channels, 0, p1len);
 			if(p2)
@@ -436,6 +438,10 @@ tRisaPhaseVocoderDSP::tStatus tRisaPhaseVocoderDSP::Process()
 			if(p2)
 				InterleaveOverlappingWindow(p2, SynthWork, OutputWindow + p1len, Channels, p1len, p2len);
 		}
+#elif defined(TVP_SOUND_HAS_ARM_SIMD)
+		InterleaveOverlappingWindow_neon(p1, SynthWork, OutputWindow, Channels, 0, p1len);
+		if(p2)
+			InterleaveOverlappingWindow_neon(p2, SynthWork, OutputWindow + p1len, Channels, p1len, p2len);
 #else
 		InterleaveOverlappingWindow(p1, SynthWork, OutputWindow, Channels, 0, p1len);
 		if(p2)
@@ -484,7 +490,11 @@ void tRisaPhaseVocoderDSP::ProcessCore(int ch)
 	float * synthwork = SynthWork[ch];
 
 	// FFT を実行する
+#if defined(TVP_SOUND_HAS_ARM_SIMD)
+	rdft_neon(FrameSize, 1, analwork, FFTWorkIp, FFTWorkW); // Real DFT
+#else
 	rdft(FrameSize, 1, analwork, FFTWorkIp, FFTWorkW); // Real DFT
+#endif
 	analwork[1] = 0.0; // analwork[1] = nyquist freq. power (どっちみち使えないので0に)
 
 	if(FrequencyScale != 1.0)
@@ -682,7 +692,11 @@ void tRisaPhaseVocoderDSP::ProcessCore(int ch)
 
 	// FFT を実行する
 	synthwork[1] = 0.0; // synthwork[1] = nyquist freq. power (どっちみち使えないので0に)
+#if defined(TVP_SOUND_HAS_ARM_SIMD)
+	rdft_neon(FrameSize, -1, SynthWork[ch], FFTWorkIp, FFTWorkW); // Inverse Real DFT
+#else
 	rdft(FrameSize, -1, SynthWork[ch], FFTWorkIp, FFTWorkW); // Inverse Real DFT
+#endif
 }
 //---------------------------------------------------------------------------
 
@@ -697,7 +711,7 @@ void tRisaPhaseVocoderDSP::ProcessCore(int ch)
 */
 
 //---------------------------------------------------------------------------
-#if defined(_WIN32) && (defined(_M_IX86)||defined(_M_X64))
+#if defined(TVP_SOUND_HAS_X86_SIMD)
 //---------------------------------------------------------------------------
 void tRisaPhaseVocoderDSP::ProcessCore_sse(int ch)
 {

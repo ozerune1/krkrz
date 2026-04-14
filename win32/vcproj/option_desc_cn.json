@@ -699,6 +699,17 @@
 		"category":"CPU功能",
 		"options":[
 			{
+				"caption":"SIMD (全部)",
+				"description":"禁用所有SIMD优化，回退到C参考实现。用于调试或问题排查。",
+				"name":"cpusimd",
+				"type":"select",
+				"user":true,
+				"values":[
+					{ "value":"yes", "desc":"可以使用的话就使用", "default":true },
+					{ "value":"no", "desc":"禁用所有SIMD" }
+				]
+			},
+			{
 				"caption":"MMX",
 				"description":"CPU识别出现问题的时候请进行调整。",
 				"name":"cpummx",

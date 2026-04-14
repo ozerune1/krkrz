@@ -12,7 +12,7 @@ extern unsigned char TVPNegativeMulTable[256*256];
 //--------------------------------------------------------------------
 void TVPFillARGB_sse2_c( tjs_uint32 *dest, tjs_int len, tjs_uint32 value ) {
 	if( len <= 0 ) return;
-	tjs_int count = (tjs_int)((unsigned)dest & 0xF);
+	tjs_int count = (tjs_int)((uintptr_t)dest & 0xF);
 	if( count ) {
 		count = (16 - count)>>2;
 		count = count > len ? len : count;
@@ -44,7 +44,7 @@ void TVPFillARGB_sse2_c( tjs_uint32 *dest, tjs_int len, tjs_uint32 value ) {
 //--------------------------------------------------------------------
 void TVPFillARGB_NC_sse2_c( tjs_uint32 *dest, tjs_int len, tjs_uint32 value ) {
 	if( len <= 0 ) return;
-	tjs_int count = (tjs_int)((unsigned)dest & 0xF);
+	tjs_int count = (tjs_int)((uintptr_t)dest & 0xF);
 	if( count ) {
 		count = (16 - count)>>2;
 		count = count > len ? len : count;
@@ -105,7 +105,7 @@ struct sse2_const_alpha_copy_functor {
 template<typename functor>
 inline void sse2_const_color_copy_unroll( tjs_uint32 *dest, tjs_int len, const functor& func ) {
 	if( len <= 0 ) return;
-	tjs_int count = (tjs_int)((unsigned)dest & 0xF);
+	tjs_int count = (tjs_int)((uintptr_t)dest & 0xF);
 	if( count ) {
 		count = (16 - count)>>2;
 		count = count > len ? len : count;
@@ -232,10 +232,10 @@ struct sse2_const_alpha_fill_blend_d_functor {
 		__m128i maddr = _mm_add_epi32( opa_, da );
 		__m128i dopa = maddr;
 		__m128i ma1 = _mm_set_epi32(
-			TVPOpacityOnOpacityTable[maddr.m128i_u32[3]],
-			TVPOpacityOnOpacityTable[maddr.m128i_u32[2]],
-			TVPOpacityOnOpacityTable[maddr.m128i_u32[1]],
-			TVPOpacityOnOpacityTable[maddr.m128i_u32[0]]);
+			TVPOpacityOnOpacityTable[M128I_U32(maddr,3)],
+			TVPOpacityOnOpacityTable[M128I_U32(maddr,2)],
+			TVPOpacityOnOpacityTable[M128I_U32(maddr,1)],
+			TVPOpacityOnOpacityTable[M128I_U32(maddr,0)]);
 
 		ma1 = _mm_packs_epi32( ma1, ma1 );		// 0 1 2 3 0 1 2 3
 		ma1 = _mm_unpacklo_epi16( ma1, ma1 );	// 0 0 1 1 2 2 3 3
@@ -335,7 +335,7 @@ struct sse2_const_alpha_fill_blend_a_functor {
 template<typename functor>
 inline void sse2_const_color_alpha_blend( tjs_uint32 *dest, tjs_int len, const functor& func ) {
 	if( len <= 0 ) return;
-	tjs_int count = (tjs_int)((unsigned)dest & 0xF);
+	tjs_int count = (tjs_int)((uintptr_t)dest & 0xF);
 	if( count ) {
 		count = (16 - count)>>2;
 		count = count > len ? len : count;

@@ -48,7 +48,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "xmmlib.h"
-#if defined(_M_IX86)||defined(_M_X64)
+#if defined(TVP_SOUND_HAS_X86_SIMD)
 
 
 //---------------------------------------------------------------------------

@@ -417,17 +417,17 @@ struct sse2_box_blur_avg_16_d_table {
 		msum = _mm_add_epi16( msum, mhalf_n );		// sum + n/2
 		msum = _mm_mulhi_epu16( msum, mrcp_ );		// (sum + n/2) * rcp, rcp は、16bitごとにする
 		msum = _mm_packus_epi16( msum, msum );		// A8|R8|G8|B8|A8|R8|G8|B8
-		unsigned char* lo = &TVPDivTable[msum.m128i_u8[3]<<8];
-		unsigned char* hi = &TVPDivTable[msum.m128i_u8[7]<<8];
-		dest[0] = (msum.m128i_u8[3]<<24) | (lo[msum.m128i_u8[2]]<<16) | (lo[msum.m128i_u8[1]]<<8) | lo[msum.m128i_u8[0]];
-		dest[1] = (msum.m128i_u8[7]<<24) | (hi[msum.m128i_u8[6]]<<16) | (hi[msum.m128i_u8[5]]<<8) | hi[msum.m128i_u8[4]];
+		unsigned char* lo = &TVPDivTable[M128I_U8(msum,3)<<8];
+		unsigned char* hi = &TVPDivTable[M128I_U8(msum,7)<<8];
+		dest[0] = (M128I_U8(msum,3)<<24) | (lo[M128I_U8(msum,2)]<<16) | (lo[M128I_U8(msum,1)]<<8) | lo[M128I_U8(msum,0)];
+		dest[1] = (M128I_U8(msum,7)<<24) | (hi[M128I_U8(msum,6)]<<16) | (hi[M128I_U8(msum,5)]<<8) | hi[M128I_U8(msum,4)];
 	}
 	inline void one( tjs_uint32 *dest, __m128i msum, const __m128i mhalf_n ) const {
 		msum = _mm_add_epi16( msum, mhalf_n );		// sum + n/2
 		msum = _mm_mulhi_epu16( msum, mrcp_ );		// (sum + n/2) * rcp, rcp は、16bitごとにする
 		msum = _mm_packus_epi16( msum, msum );		// A8|R8|G8|B8|A8|R8|G8|B8
-		unsigned char* lo = &TVPDivTable[msum.m128i_u8[3]<<8];
-		dest[0] = (msum.m128i_u8[3]<<24) | (lo[msum.m128i_u8[2]]<<16) | (lo[msum.m128i_u8[1]]<<8) | lo[msum.m128i_u8[0]];
+		unsigned char* lo = &TVPDivTable[M128I_U8(msum,3)<<8];
+		dest[0] = (M128I_U8(msum,3)<<24) | (lo[M128I_U8(msum,2)]<<16) | (lo[M128I_U8(msum,1)]<<8) | lo[M128I_U8(msum,0)];
 	}
 };
 template<typename avg_func_t>

@@ -29,6 +29,9 @@
 #include "aligned_allocator.h"
 #include "ResampleImageInternal.h"
 
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
+#include "tvpgl_ia32_intf.h" /* TVP_CPU_HAS_SSE2 / AVX2 等 */
+extern "C" tjs_uint32 TVPCPUType;
 
 extern void TVPResampleImageAVX2( const tTVPResampleClipping &clip, const tTVPImageCopyFuncBase* blendfunc,
 	tTVPBaseBitmap *dest, const tTVPRect &destrect, const tTVPBaseBitmap *src, const tTVPRect &srcrect,
@@ -37,6 +40,7 @@ extern void TVPResampleImageAVX2( const tTVPResampleClipping &clip, const tTVPIm
 extern void TVPResampleImageSSE2( const tTVPResampleClipping &clip, const tTVPImageCopyFuncBase* blendfunc,
 	tTVPBaseBitmap *dest, const tTVPRect &destrect, const tTVPBaseBitmap *src, const tTVPRect &srcrect,
 	tTVPBBStretchType type, tjs_real typeopt );
+#endif
 
 void tTVPBlendParameter::setFunctionFromParam() {
 #define TVP_BLEND_4(basename) /* blend for 4 types (normal, opacity, HDA, HDA opacity) */ \
@@ -702,12 +706,15 @@ void TVPResampleImage( const tTVPRect &cliprect, tTVPBaseBitmap *dest, const tTV
 	}
 
 	try {
-#ifdef _WIN32
-		tjs_uint32 CpuFeature = TVPGetCPUType();
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
+		/* x86 build (any OS): TVPCPUType は SysInit から TVPInitCPUFeatures()
+		   で埋められている (commit a21d053d 以降)。旧実装は `_WIN32` で gating
+		   していたため Generic Windows / Linux / macOS の x86_64 build では
+		   常に C reference に落ちていた。 */
+		const tjs_uint32 CpuFeature = TVPCPUType;
 		if( (CpuFeature & TVP_CPU_HAS_AVX2) ) {
 			TVPResampleImageAVX2( clip, func, dest, destrect, src, srcrect, type, typeopt );
 		} else if( (CpuFeature & TVP_CPU_HAS_SSE2) ) {
-			// TODO SSE2版は、Android でもx86の時使えるが、x86のandroid intel止めてしまったから不要か？
 			TVPResampleImageSSE2( clip, func, dest, destrect, src, srcrect, type, typeopt );
 		} else
 #endif

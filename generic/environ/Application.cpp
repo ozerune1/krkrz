@@ -164,6 +164,8 @@ tTVPApplication::InitArgs(int argc, tjs_char **argv)
 	}
 }
 
+extern void TVPLoadStaticPluigins(void);
+
 bool tTVPApplication::InitializeApplication() 
 {
 	try {
@@ -215,6 +217,10 @@ bool tTVPApplication::InitializeApplication()
 #ifndef TVP_IGNORE_LOAD_TPM_PLUGIN
 //		TVPLoadPluigins(); // load plugin module *.tpm
 #endif
+
+		// 静的リンクされたプラグインのロード
+		TVPLoadStaticPluigins();
+
 		// start image load thread
 		image_load_thread_->StartThread();
 		file_cache_thread_->StartThread();

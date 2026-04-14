@@ -39,7 +39,7 @@ INSTALL_PREFIX?=install
 
 BUILD_PATH=$(shell cmake --preset $(PRESET) -N | grep BUILD_DIR | sed 's/.*BUILD_DIR="\(.*\)"/\1/')
 
-.PHONY: prebuild build clean install run
+.PHONY: prebuild build clean install run test
 
 all: build
 
@@ -56,6 +56,16 @@ clean:
 
 install:
 	cmake --install $(BUILD_PATH) --config $(BUILD_TYPE) --prefix $(INSTALL_PREFIX)
+
+# SIMD parity テスト のビルド + 実行
+# simd_parity: 画像処理 SIMD (SSE2/AVX2/NEON) を C リファレンスと byte-exact
+#              (一部 tolerance) で比較
+# sound_parity: sound SIMD (SSE/NEON) を C リファレンスと tolerance 比較
+# どちらも SDL3 / OpenGL / vcpkg 非依存のスタンドアロンテスト。
+test:
+	cmake --build $(BUILD_PATH) --config $(BUILD_TYPE) --target krkrz_simd_parity_test
+	cmake --build $(BUILD_PATH) --config $(BUILD_TYPE) --target krkrz_sound_parity_test
+	ctest --test-dir $(BUILD_PATH) -C $(BUILD_TYPE) -R parity --output-on-failure
 
 # WIN版用ルール
 ifeq (windows,$(findstring windows,$(PRESET)))

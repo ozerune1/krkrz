@@ -19,6 +19,8 @@
 #include <math.h>
 #include "MathAlgorithms.h"
 
+#if defined(TVP_SOUND_HAS_X86_SIMD)
+
 
 //---------------------------------------------------------------------------
 
@@ -294,3 +296,5 @@ void  InterleaveOverlappingWindow_sse(float * __restrict dest, const float * __r
 
 
 
+
+#endif // TVP_SOUND_HAS_X86_SIMD

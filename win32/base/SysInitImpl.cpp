@@ -1252,8 +1252,16 @@ extern void TVPAddGlobalHeapCompactCallback();
 static bool TVPHighTimerPeriod = false;
 static UINT TVPTimeBeginPeriodRes = 0;
 //---------------------------------------------------------------------------
+#include "../../common/visual/cpu_detect.h"
+//---------------------------------------------------------------------------
 void TVPAfterSystemInit()
 {
+	// portable な CPU feature 検出 (cpuid + AVX OS-support 検査)。
+	// 後段の TVPDetectCPU は per-CPU thread を立てて全コアの features を mask
+	// する Win32 固有の補助検出 + ロギング用に残してある (heterogeneous CPU
+	// での safety と info dump 目的)。
+	TVPInitCPUFeatures();
+
 	// check CPU type
 	TVPDetectCPU();
 

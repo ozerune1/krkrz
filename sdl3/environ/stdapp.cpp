@@ -6,13 +6,14 @@
 
 #include "app.h"
 #include <filesystem>
+#include <SDL3/SDL_dialog.h>
 
 class MySDL3Application : public SDL3Application  {
 
 public:
     MySDL3Application() {}
 	virtual ~MySDL3Application(){}
-    virtual void InitPath();
+    virtual bool InitPath();
     virtual const tjs_string& TempPath() const; //< テンポラリ領域のパス
 };
 
@@ -31,26 +32,57 @@ static inline void checkLastDelimiter(std::string &path, char delimiter)
 	}
 }
 
-void MySDL3Application::InitPath() 
+// ---------------------------------------------------------------------------
+// フォルダ選択ダイアログ (同期ラッパー)
+// SDL_ShowOpenFolderDialog は非同期 API なので、コールバック結果を
+// SDL イベントポンプで同期的に待つ。
+// ---------------------------------------------------------------------------
+struct FolderDialogResult {
+	bool done = false;
+	bool selected = false;
+	std::string path;
+};
+
+static void SDLCALL FolderDialogCallback(void *userdata, const char * const *filelist, int filter)
+{
+	auto *result = static_cast<FolderDialogResult *>(userdata);
+	if (filelist && *filelist) {
+		result->selected = true;
+		result->path = *filelist;
+	}
+	result->done = true;
+}
+
+// プロジェクトフォルダ選択ダイアログを表示し、選択されたパスを返す。
+// キャンセルまたはエラー時は空文字列を返す。
+static std::string ShowProjectFolderDialog()
+{
+	char* cwd = SDL_GetCurrentDirectory();
+	FolderDialogResult result;
+	SDL_ShowOpenFolderDialog(FolderDialogCallback, &result, nullptr, cwd, false);
+	SDL_free(cwd);
+
+	// コールバックが呼ばれるまでイベントポンプで待機
+	while (!result.done) {
+		SDL_PumpEvents();
+		SDL_Delay(10);
+	}
+	return result.path;
+}
+
+static bool IsExistent(const char *path)
+{
+	tjs_string _path;
+	TVPUtf8ToUtf16(_path, path);
+	return TVPIsExistentStorageNoSearch(_path.c_str());
+}
+
+bool MySDL3Application::InitPath()
 {
     // プラグインパス
     // 実行ファイルのパス
-	std::string basePath = SDL_GetBasePath();
-	char delimiter = basePath.back();
-
-#ifdef TJS_64BIT_OS
-	std::string pluginPath = basePath + "plugin64";
-#else
-	std::string pluginPath = basePath + "plugin";
-#endif
-	checkLastDelimiter(pluginPath, delimiter);
-
-	std::string appPath = SDL_GetCurrentDirectory();
-	checkLastDelimiter(appPath, delimiter);
-
-	// SDL: storage.cpp でマウントされた user: を参照
-	std::string dataPath = "user://./";
-	std::string logPath = dataPath;
+	std::string appPath = SDL_GetBasePath();
+	char delimiter = appPath.back();
 
 	// 引数でプロジェクトパスを明示指定
 	std::string projectPath;
@@ -64,47 +96,58 @@ void MySDL3Application::InitPath()
 		}
 		checkLastDelimiter(projectPath, delimiter);
 	} else {
-		if (TVPIsExistentStorageNoSearch("resource://./data.xp3")) {
+		if (IsExistent("resource://./data.xp3")) {
 			// resource://./data.xp3 が存在する場合はそれを優先
 			projectPath = "resource://./data.xp3>";
 			TVPLOG_INFO("resource://./data.xp3 found, using as project path");
-		} else if (TVPIsExistentStorageNoSearch("resource://./data/startup.tjs")) {
+		} else if (IsExistent("resource://./data/startup.tjs")) {
 			// resource://./data/startup.tjs が存在する場合はそれを優先
 			projectPath = "resource://./data/";
 			TVPLOG_INFO("resource://./data/startup.tjs found, using resource data/ as project path");
-		} else if (TVPIsExistentStorageNoSearch("file://./data.xp3")) {
-			projectPath = "file://./data.xp3>";
-			TVPLOG_INFO("file://./data.xp3 found, using as project path");
-		} else if (TVPIsExistentStorageNoSearch("file://./data/startup.tjs")) {
-			// file://./data/startup.tjs が存在する場合はそれを優先
-			projectPath = "file://./data/";
-			TVPLOG_INFO("file://./data/startup.tjs found, using data/ as project path");
+		} else if (IsExistent((appPath + "data.xp3").c_str())) {
+			projectPath = appPath + "data.xp3>";
+			TVPLOG_INFO("data.xp3 found, using as project path");
+		} else if (IsExistent((appPath + "data/startup.tjs").c_str())) {
+			projectPath = appPath + "data/";
+			TVPLOG_INFO("data/startup.tjs found, using data/ as project path");
 		} else {
-			// それ以外はカレントフォルダの data フォルダを参照
-			projectPath = "data/";
+			// 自動探索で見つからなかった場合、フォルダ選択ダイアログを表示
+			TVPLOG_INFO("No project data found automatically, showing folder selection dialog");
+			std::string selected = ShowProjectFolderDialog();
+			if (!selected.empty()) {
+				projectPath = selected;
+				checkLastDelimiter(projectPath, delimiter);
+				TVPLOG_INFO("User selected project folder: {}", projectPath);
+			} else {
+				return false;
+			}
 		}
 	}
-	TVPLOG_INFO("basePath: {}", basePath);
 	TVPLOG_INFO("appPath: {}", appPath);
 	TVPLOG_ERROR("projectPath: {}", projectPath);
 
-	//  XXX exePath 代替
-	tjs_string _BasePath;
-	TVPUtf8ToUtf16(_BasePath, basePath);
-	_ExePath = _BasePath + TJS_W("krkrz.exe");
-
 	TVPUtf8ToUtf16(_AppPath, appPath);
-	TVPUtf8ToUtf16(_PluginPath, pluginPath);
-	TVPUtf8ToUtf16(_DataPath, dataPath);
-	TVPUtf8ToUtf16(_LogPath, logPath);
 	TVPUtf8ToUtf16(_ProjectPath, projectPath);
 
-	// リソースは全環境 resource://./ で準備想定
+	/// XXX
+	_ExePath = _AppPath + TJS_W("krkrz.exe");
+#ifdef __APPLE__
+	_PluginPath = _AppPath;
+#elif defined(TJS_64BIT_OS)
+	_PluginPath = _AppPath + TJS_W("plugin64/");;
+#else
+	_PluginPath = _AppPath + TJS_W("plugin/");
+#endif
+	// SDL: storage.cpp でマウントされた user: を参照
+	_DataPath = TJS_W("user://./");
+	_LogPath = _DataPath;
 	_ResourcePath = TJS_W("resource://./");
 
 #ifdef _WIN32
 	::SetDllDirectory((wchar_t*)PluginPath().c_str());
 #endif
+
+	return true;
 }
 
 const tjs_string& MySDL3Application::TempPath() const
@@ -236,12 +279,11 @@ void SDL_GetLocallyAccessibleName(tjs_string &name)
 	std::replace(newname.begin(), newname.end(), TJS_W('/'), TJS_W('\\'));
 
 	name = newname;
-
 #else
 	const tjs_char *ptr = name.c_str();
-	// 先頭の "./" を取り除く
+	// 先頭の "." を取り除く
 	if (ptr[0] == '.' && ptr[1] == '/') {
-		name = ptr + 2;
+		name = ptr + 1;
 	}
 #endif
 

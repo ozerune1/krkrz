@@ -70,6 +70,9 @@ typedef struct tagBITMAPINFO {
     RGBQUAD             bmiColors[1];
 } BITMAPINFO, *PBITMAPINFO;
 
+typedef int32_t HRESULT;
+#define S_OK 0
+#define E_FAIL 0x80004005
 #endif
 
 

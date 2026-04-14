@@ -23,12 +23,30 @@ struct neon_alpha_blend : public alpha_blend_func
 
     inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms, uint8x8_t ma) const
     {
-        // ma_inv = (255 - ma)
-        // (ms * ma + md * ma_inv) >> 8
-        uint8x8_t ma_inv = vmvn_u8(ma);
-        B_VEC(md) = vaddhn_u16(vmull_u8(B_VEC(ms), ma), vmull_u8(B_VEC(md), ma_inv));
-        G_VEC(md) = vaddhn_u16(vmull_u8(G_VEC(ms), ma), vmull_u8(G_VEC(md), ma_inv));
-        R_VEC(md) = vaddhn_u16(vmull_u8(R_VEC(ms), ma), vmull_u8(R_VEC(md), ma_inv));
+        // C ref (alpha_blend_func) の per-channel 等価式:
+        //   result = d + ((s - d) * a) >> 8      (算術右シフト)
+        // 旧実装は (s*a + d*(255-a)) >> 8 という代替式で ±1 ズレが出ていた。
+        // SSE2/AVX2 と同じく int16 符号付き演算で書き直す。alpha レーンは
+        // C ref が 0 にするので vdup_n_u8(0) で揃える (HDA variant 側で保持)。
+        int16x8_t a16 = vreinterpretq_s16_u16(vmovl_u8(ma));
+        auto blend_ch = [&](uint8x8_t d, uint8x8_t s) -> uint8x8_t {
+            int16x8_t d16   = vreinterpretq_s16_u16(vmovl_u8(d));
+            int16x8_t s16   = vreinterpretq_s16_u16(vmovl_u8(s));
+            int16x8_t diff  = vsubq_s16(s16, d16);        // -255..255 (s16 内)
+            // diff * a16 は -65025..65025 で s16 範囲 (-32768..32767) を越えるので
+            // s32 に widen して掛ける
+            int32x4_t prod_lo = vmull_s16(vget_low_s16(diff),  vget_low_s16(a16));
+            int32x4_t prod_hi = vmull_s16(vget_high_s16(diff), vget_high_s16(a16));
+            int32x4_t sh_lo   = vshrq_n_s32(prod_lo, 8);  // 算術右シフト (floor)
+            int32x4_t sh_hi   = vshrq_n_s32(prod_hi, 8);
+            int16x8_t shifted = vcombine_s16(vmovn_s32(sh_lo), vmovn_s32(sh_hi));
+            int16x8_t res     = vaddq_s16(d16, shifted);
+            return vqmovun_s16(res);                       // sat u8 (常に 0..255 内)
+        };
+        B_VEC(md) = blend_ch(B_VEC(md), B_VEC(ms));
+        G_VEC(md) = blend_ch(G_VEC(md), G_VEC(ms));
+        R_VEC(md) = blend_ch(R_VEC(md), R_VEC(ms));
+        A_VEC(md) = vdup_n_u8(0);
         return md;
     }
 };
@@ -62,8 +80,9 @@ struct neon_variation_opa : public blend_func
 
     inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
     {
-        // tjs_uint32 a = ((s>>24)*opa_) >> 8;
-        tjs_uint32 a = (tjs_uint32)(((tjs_uint64)s * (tjs_uint64)opa_) >> 32);
+        // 旧実装の `(s*opa) >> 32` は s.G/B からの繰り上がりが bit32 に乗ると
+        // (sa*opa)>>8 と±1ズレることがあった (Phase B で SSE2/AVX2 と同じ修正)。
+        tjs_uint32 a = ((s >> 24) * opa_) >> 8;
         return blend_func::operator()(d, s, a);
     }
 
@@ -204,67 +223,42 @@ typedef neon_variation_hda<neon_variation_opa<neon_alpha_blend>>
 // neon_alpha_blend_d_functor
 // neon_alpha_blend_a_functor
 
+// scalar 用 helper: byte saturate add
+static inline tjs_uint32 neon_scalar_sat_add_byte(tjs_uint32 a, tjs_uint32 b)
+{
+    return a + b > 255 ? 255 : a + b;
+}
+
+// TVPAdditiveAlphaBlend (非 HDA / src not pre-multiplied):
+//   sa_inv     = 255 - src.alpha
+//   result_rgb = sat_add( (d_rgb * sa_inv) >> 8, s_rgb )
+//   result_a   = src.alpha
+// Phase B / AVX2 と同じく `d - (d*sa>>8)` 減算ベースではなく `(d*(255-sa))>>8`
+// 掛け算ベースにして C リファレンスと一致させる。
 struct neon_premul_alpha_blend_functor
 {
     inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
     {
-        // TODO ベクトル化不要？
-        return s; // TODO 暫定
+        tjs_uint32 sa  = s >> 24;
+        tjs_uint32 sai = 255 - sa;
+        tjs_uint32 dB = d & 0xff, dG = (d >> 8) & 0xff, dR = (d >> 16) & 0xff;
+        tjs_uint32 sB = s & 0xff, sG = (s >> 8) & 0xff, sR = (s >> 16) & 0xff;
+        tjs_uint32 rB = neon_scalar_sat_add_byte((dB * sai) >> 8, sB);
+        tjs_uint32 rG = neon_scalar_sat_add_byte((dG * sai) >> 8, sG);
+        tjs_uint32 rR = neon_scalar_sat_add_byte((dR * sai) >> 8, sR);
+        return (sa << 24) | (rR << 16) | (rG << 8) | rB;
     }
     inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
     {
-        return ms; // TODO 暫定
+        uint8x8_t sa     = A_VEC(ms);
+        uint8x8_t sa_inv = vmvn_u8(sa); // 255 - sa
+        // (d * (255-sa)) >> 8 per channel, sat add s
+        B_VEC(md) = vqadd_u8(vshrn_n_u16(vmull_u8(B_VEC(md), sa_inv), 8), B_VEC(ms));
+        G_VEC(md) = vqadd_u8(vshrn_n_u16(vmull_u8(G_VEC(md), sa_inv), 8), G_VEC(ms));
+        R_VEC(md) = vqadd_u8(vshrn_n_u16(vmull_u8(R_VEC(md), sa_inv), 8), R_VEC(ms));
+        A_VEC(md) = sa; // 非 HDA バリアント: result alpha = src alpha
+        return md;
     }
-
-#if REFERENCE_AVX2
-    const uint8x8x4_t zero_;
-    inline neon_premul_alpha_blend_functor()
-    : zero_(_mm256_setzero_si256())
-    {}
-    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
-    {
-        __m128i ms     = _mm_cvtsi32_si128(s);
-        tjs_int32 sopa = s >> 24;
-        __m128i mo     = _mm_cvtsi32_si128(sopa);
-        __m128i md     = _mm_cvtsi32_si128(d);
-        mo             = _mm_shufflelo_epi16(
-            mo, _MM_SHUFFLE(0, 0, 0, 0)); // 0000000000000000 00oo00oo00oo00oo
-        md          = _mm_cvtepu8_epi16(md);          // 00dd00dd00dd00dd
-        __m128i md2 = md;
-        md          = _mm_mullo_epi16(md, mo);    // md * sopa
-        md          = _mm_srli_epi16(md, 8);      // md >>= 8
-        md2         = _mm_sub_epi16(md2, md);     // d - (d*sopa)>>8
-        md2         = _mm_packus_epi16(md2, md2); // pack
-        md2         = _mm_adds_epu8(md2, ms);     // d - ((d*sopa)>>8) + src
-        return _mm_cvtsi128_si32(md2);
-    }
-    inline uint8x8x4_t operator()(uint8x8x4_t d, uint8x8x4_t s) const
-    {
-        uint8x8x4_t ma1 = s;
-        ma1             = _mm256_srli_epi32(ma1, 24);      // s >> 24
-        ma1             = _mm256_packs_epi32(ma1, ma1);    // 0 1 2 3 0 1 2 3
-        ma1             = _mm256_unpacklo_epi16(ma1, ma1); // 0 0 1 1 2 2 3 3
-        uint8x8x4_t ma2 = ma1;
-        ma1             = _mm256_unpacklo_epi16(ma1, ma1); // 0 0 0 0 1 1 1 1
-
-        uint8x8x4_t md2 = d;
-        d               = _mm256_unpacklo_epi8(d, zero_);
-        uint8x8x4_t md1 = d;
-        d               = _mm256_mullo_epi16(d, ma1); // md * sopa
-        d               = _mm256_srli_epi16(d, 8);    // md >>= 8
-        md1             = _mm256_sub_epi16(md1, d);   // d - (d*sopa)>>8
-
-        ma2              = _mm256_unpackhi_epi16(ma2, ma2); // 2 2 2 2 3 3 3 3
-        md2              = _mm256_unpackhi_epi8(md2, zero_);
-        uint8x8x4_t md2t = md2;
-        md2              = _mm256_mullo_epi16(md2, ma2); // md * sopa
-        md2              = _mm256_srli_epi16(md2, 8);    // md >>= 8
-        md2t             = _mm256_sub_epi16(md2t, md2);  // d - (d*sopa)>>8
-
-        md1 = _mm256_packus_epi16(md1, md2t);
-        return _mm256_adds_epu8(md1, s); // d - ((d*sopa)>>8) + src
-    }
-#endif
 };
 
 //--------------------------------------------------------------------
@@ -273,239 +267,129 @@ struct neon_premul_alpha_blend_functor
 //           ~~~~~~~~Ds
 //      ~~~~~~~~~~~~~Dq
 // additive alpha blend with opacity
+// TVPAdditiveAlphaBlend_o (with opacity, 非 HDA):
+//   sa_pmul    = (src.alpha * opa) >> 8
+//   sa_pmul_inv = 255 - sa_pmul
+//   s_pmul     = (s * opa) >> 8 (全チャネル)
+//   result_rgb = sat_add( (d * sa_pmul_inv) >> 8, s_pmul.rgb )
+//   result_a   = sa_pmul
 struct neon_premul_alpha_blend_o_functor
 {
-    const tjs_uint8 opa8_;
+    const tjs_int32 opa_scalar_;
+    const uint8x8_t opa_vec_;
     inline neon_premul_alpha_blend_o_functor(tjs_int32 opa)
-    : opa8_(opa & 0xff)
+    : opa_scalar_(opa)
+    , opa_vec_(vdup_n_u8((uint8_t)opa))
     {}
 
     inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
     {
-        // TODO ベクトル化不要？
-        return s; // TODO 暫定
+        tjs_uint32 sa      = s >> 24;
+        tjs_uint32 sa_pmul = (sa * (tjs_uint32)opa_scalar_) >> 8;
+        tjs_uint32 sai     = 255 - sa_pmul;
+        tjs_uint32 dB = d & 0xff, dG = (d >> 8) & 0xff, dR = (d >> 16) & 0xff;
+        tjs_uint32 sB = s & 0xff, sG = (s >> 8) & 0xff, sR = (s >> 16) & 0xff;
+        tjs_uint32 spB = (sB * (tjs_uint32)opa_scalar_) >> 8;
+        tjs_uint32 spG = (sG * (tjs_uint32)opa_scalar_) >> 8;
+        tjs_uint32 spR = (sR * (tjs_uint32)opa_scalar_) >> 8;
+        tjs_uint32 rB  = neon_scalar_sat_add_byte((dB * sai) >> 8, spB);
+        tjs_uint32 rG  = neon_scalar_sat_add_byte((dG * sai) >> 8, spG);
+        tjs_uint32 rR  = neon_scalar_sat_add_byte((dR * sai) >> 8, spR);
+        return (sa_pmul << 24) | (rR << 16) | (rG << 8) | rB;
     }
+
     inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
     {
-        return ms; // TODO 暫定
+        // s_pmul = (s * opa) >> 8 全チャネル
+        uint8x8_t sB = vshrn_n_u16(vmull_u8(B_VEC(ms), opa_vec_), 8);
+        uint8x8_t sG = vshrn_n_u16(vmull_u8(G_VEC(ms), opa_vec_), 8);
+        uint8x8_t sR = vshrn_n_u16(vmull_u8(R_VEC(ms), opa_vec_), 8);
+        uint8x8_t sA = vshrn_n_u16(vmull_u8(A_VEC(ms), opa_vec_), 8);
+
+        uint8x8_t sa_inv = vmvn_u8(sA); // 255 - sa_pmul
+
+        B_VEC(md) = vqadd_u8(vshrn_n_u16(vmull_u8(B_VEC(md), sa_inv), 8), sB);
+        G_VEC(md) = vqadd_u8(vshrn_n_u16(vmull_u8(G_VEC(md), sa_inv), 8), sG);
+        R_VEC(md) = vqadd_u8(vshrn_n_u16(vmull_u8(R_VEC(md), sa_inv), 8), sR);
+        A_VEC(md) = sA; // result alpha = sa_pmul
+        return md;
     }
-
-#if REFERENCE_AVX2
-
-    const uint8x8x4_t zero_;
-    const uint8x8x4_t opa_;
-    inline neon_premul_alpha_blend_o_functor(tjs_int opa)
-    : zero_(_mm256_setzero_si256())
-    , opa_(_mm256_set1_epi16((short)opa))
-    {}
-    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
-    {
-        const __m128i opa = _mm256_extracti128_si256(opa_, 0);
-        __m128i ms        = _mm_cvtsi32_si128(s);
-        __m128i md        = _mm_cvtsi32_si128(d);
-        ms                = _mm_cvtepu8_epi16(ms);    // 00ss00ss00ss00ss
-        md                = _mm_cvtepu8_epi16(md);    // 00dd00dd00dd00dd
-        ms                = _mm_mullo_epi16(ms, opa); // 00Sf00Sf00Sf00Sf s * opa
-        __m128i md2       = md;
-        ms                = _mm_srli_epi16(ms, 8); // s >> 8
-        __m128i ms2       = ms;
-        ms2               = _mm_srli_epi64(ms2, 48); // s >> 48 | sopa
-        ms2               = _mm_unpacklo_epi16(ms2, ms2);
-        ms2               = _mm_unpacklo_epi16(ms2, ms2); // 00Df00Df00Df00Df
-
-        md  = _mm_mullo_epi16(md, ms2); // 00Ds00Ds00Ds00Ds
-        md  = _mm_srli_epi16(md, 8);    // d >> 8
-        md2 = _mm_sub_epi16(md2, md);   // 00Dq00Dq00Dq00Dq
-        md2 = _mm_add_epi16(md2, ms);   // d + s
-        md2 = _mm_packus_epi16(md2, md2);
-        return _mm_cvtsi128_si32(md2);
-    }
-    inline uint8x8x4_t operator()(uint8x8x4_t d, uint8x8x4_t s) const
-    {
-        uint8x8x4_t ms  = s;
-        uint8x8x4_t md  = d;
-        ms              = _mm256_unpackhi_epi8(ms, zero_);
-        md              = _mm256_unpackhi_epi8(md, zero_);
-        ms              = _mm256_mullo_epi16(ms, opa_); // 00Sf00Sf00Sf00Sf s * opa
-        uint8x8x4_t md2 = md;
-        ms              = _mm256_srli_epi16(ms, 8); // s >> 8
-        uint8x8x4_t ma  = ms;
-        ma              = _mm256_srli_epi64(ma, 48); // s >> 48 : sopa 0 0 0 1 0 0 0 2
-        ma = _mm256_shuffle_epi32(ma, _MM_SHUFFLE(2, 2, 0, 0)); // 0 1 0 1 0 2 0 2
-        ma = _mm256_packs_epi32(ma, ma);                        // 1 1 2 2 1 1 2 2
-        ma = _mm256_unpacklo_epi32(ma, ma);                     // 1 1 1 1 2 2 2 2
-        // 00Df00Df00Df00Df
-
-        md  = _mm256_mullo_epi16(md, ma); // 00Ds00Ds00Ds00Ds
-        md  = _mm256_srli_epi16(md, 8);   // d >> 8
-        md2 = _mm256_sub_epi16(md2, md);  // 00Dq00Dq00Dq00Dq
-        md2 = _mm256_add_epi16(md2, ms);  // d + s
-
-        s               = _mm256_unpacklo_epi8(s, zero_);
-        d               = _mm256_unpacklo_epi8(d, zero_);
-        s               = _mm256_mullo_epi16(s, opa_); // 00Sf00Sf00Sf00Sf s * opa
-        uint8x8x4_t md1 = d;
-        s               = _mm256_srli_epi16(s, 8); // s >> 8
-        ma              = s;
-        ma              = _mm256_srli_epi64(ma, 48);            // s >> 48 | sopa
-        ma = _mm256_shuffle_epi32(ma, _MM_SHUFFLE(2, 2, 0, 0)); // 0 1 0 1 0 2 0 2
-        ma = _mm256_packs_epi32(ma, ma);                        // 1 1 2 2 1 1 2 2
-        ma = _mm256_unpacklo_epi32(ma, ma);                     // 1 1 1 1 2 2 2 2
-        // 00Df00Df00Df00Df
-
-        d   = _mm256_mullo_epi16(d, ma); // 00Ds00Ds00Ds00Ds
-        d   = _mm256_srli_epi16(d, 8);   // d >> 8
-        md1 = _mm256_sub_epi16(md1, d);  // 00Dq00Dq00Dq00Dq
-        md1 = _mm256_add_epi16(md1, s);  // d + s
-        return _mm256_packus_epi16(md1, md2);
-    }
-#endif
 };
 
-/*
-        Di = sat(Si, (1-Sa)*Di)
-        Da = Sa + Da - SaDa
-*/
-// additive alpha blend holding destination alpha
+// TVPAdditiveAlphaBlend_HDA (HDA = preserve dst alpha):
+//   sa_inv     = 255 - src.alpha
+//   result_rgb = sat_add( (d_rgb * sa_inv) >> 8, s_rgb )
+//   result_a   = dst.alpha (unchanged)
 struct neon_premul_alpha_blend_hda_functor
 {
     inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
     {
-        // TODO ベクトル化不要？
-        return s; // TODO 暫定
+        tjs_uint32 sa  = s >> 24;
+        tjs_uint32 sai = 255 - sa;
+        tjs_uint32 dB = d & 0xff, dG = (d >> 8) & 0xff, dR = (d >> 16) & 0xff;
+        tjs_uint32 sB = s & 0xff, sG = (s >> 8) & 0xff, sR = (s >> 16) & 0xff;
+        tjs_uint32 rB = neon_scalar_sat_add_byte((dB * sai) >> 8, sB);
+        tjs_uint32 rG = neon_scalar_sat_add_byte((dG * sai) >> 8, sG);
+        tjs_uint32 rR = neon_scalar_sat_add_byte((dR * sai) >> 8, sR);
+        return (d & 0xff000000) | (rR << 16) | (rG << 8) | rB;
     }
     inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
     {
-        return ms; // TODO 暫定
+        uint8x8_t sa_inv = vmvn_u8(A_VEC(ms)); // 255 - sa
+        uint8x8_t da_save = A_VEC(md);
+        B_VEC(md) = vqadd_u8(vshrn_n_u16(vmull_u8(B_VEC(md), sa_inv), 8), B_VEC(ms));
+        G_VEC(md) = vqadd_u8(vshrn_n_u16(vmull_u8(G_VEC(md), sa_inv), 8), G_VEC(ms));
+        R_VEC(md) = vqadd_u8(vshrn_n_u16(vmull_u8(R_VEC(md), sa_inv), 8), R_VEC(ms));
+        A_VEC(md) = da_save;
+        return md;
     }
-#if REFERENCE_AVX2
-    const uint8x8x4_t zero_;
-    const uint8x8x4_t alphamask_;
-    const uint8x8x4_t colormask_;
-    inline neon_premul_alpha_blend_hda_functor()
-    : zero_(_mm256_setzero_si256())
-    , alphamask_(_mm256_set_epi32(0x0000ffff, 0xffffffff, 0x0000ffff, 0xffffffff,
-                                  0x0000ffff, 0xffffffff, 0x0000ffff, 0xffffffff))
-    , colormask_(_mm256_set1_epi32(0x00FFFFFF))
-    {}
-    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
-    {
-        const __m128i alphamask = _mm256_extracti128_si256(alphamask_, 0);
-        const __m128i colormask = _mm256_extracti128_si256(colormask_, 0);
-        __m128i ms              = _mm_cvtsi32_si128(s);
-        __m128i mo              = _mm_cvtsi32_si128(s >> 24);
-        __m128i md              = _mm_cvtsi32_si128(d);
-        ms                      = _mm_and_si128(ms, colormask); // 0000000000ssssss
-        md                      = _mm_cvtepu8_epi16(md);        // 00dd00dd00dd00dd
-        mo = _mm_shufflelo_epi16(mo, _MM_SHUFFLE(0, 0, 0, 0));  // 00oo00oo00oo00oo
-
-        __m128i md2 = md;
-        md          = _mm_mullo_epi16(md, mo);      // d * opa
-        md          = _mm_srli_epi16(md, 8);        // d >> 8
-        md          = _mm_and_si128(md, alphamask); // d & 0x00ffffff
-        md2         = _mm_sub_epi16(md2, md);       // d - d*opa
-        md2         = _mm_packus_epi16(md2, md2);
-        md2         = _mm_adds_epu8(md2, ms); // d + src
-        return _mm_cvtsi128_si32(md2);
-    }
-    inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t s) const
-    {
-        uint8x8x4_t mo0 = s;
-        mo0             = _mm256_srli_epi32(mo0, 24);
-        mo0             = _mm256_packs_epi32(mo0, mo0);    // 0 1 2 3 0 1 2 3
-        mo0             = _mm256_unpacklo_epi16(mo0, mo0); // 0 0 1 1 2 2 3 3
-        uint8x8x4_t mo1 = mo0;
-        mo1             = _mm256_unpacklo_epi16(mo1, mo1); // 0 0 0 0 1 1 1 1 o[1]
-        mo0             = _mm256_unpackhi_epi16(mo0, mo0); // 2 2 2 2 3 3 3 3 o[0]
-
-        uint8x8x4_t md0  = md;
-        md               = _mm256_unpacklo_epi8(md, zero_); // 00dd00dd00dd00dd d[1]
-        uint8x8x4_t md12 = md;
-        md               = _mm256_mullo_epi16(md, mo1);      // d[1] * o[1]
-        md               = _mm256_srli_epi16(md, 8);         // d[1] >> 8
-        md               = _mm256_and_si256(md, alphamask_); // d[1] & 0x00ffffff
-        md12             = _mm256_sub_epi16(md12, md);       // d[1] - d[1]*opa
-
-        md0              = _mm256_unpackhi_epi8(md0, zero_); // 00dd00dd00dd00dd d[0]
-        uint8x8x4_t md02 = md0;
-        md0              = _mm256_mullo_epi16(md0, mo0);      // d[0] * o[0]
-        md0              = _mm256_srli_epi16(md0, 8);         // d[0] >> 8
-        md0              = _mm256_and_si256(md0, alphamask_); // d[0] & 0x00ffffff
-        md02             = _mm256_sub_epi16(md02, md0);       // d[0] - d[0]*opa
-        md02             = _mm256_packus_epi16(md12, md02);   // pack( d[1], d[0] )
-
-        s = _mm256_and_si256(s, colormask_); // s & 0x00ffffff00ffffff
-        return _mm256_adds_epu8(md02, s);    // d + s
-    }
-#endif
 };
 
-// additive alpha blend on additive alpha
+// TVPAdditiveAlphaBlend_a (premul-on-premul):
+//   sa_inv     = 255 - src.alpha
+//   da_new     = sat255( da + sa - (da*sa>>8) )
+//   result_rgb = sat_add( (d_rgb * sa_inv) >> 8, s_rgb )
+//   result_a   = da_new
 struct neon_premul_alpha_blend_a_functor
 {
     inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
     {
-        // TODO ベクトル化不要？
-        return s; // TODO 暫定
+        tjs_uint32 da    = d >> 24;
+        tjs_uint32 sa    = s >> 24;
+        tjs_uint32 new_a = da + sa - ((da * sa) >> 8);
+        new_a -= (new_a >> 8); // 256 → 255 飽和補正
+        tjs_uint32 sai = 255 - sa;
+        tjs_uint32 dB = d & 0xff, dG = (d >> 8) & 0xff, dR = (d >> 16) & 0xff;
+        tjs_uint32 sB = s & 0xff, sG = (s >> 8) & 0xff, sR = (s >> 16) & 0xff;
+        tjs_uint32 rB = neon_scalar_sat_add_byte((dB * sai) >> 8, sB);
+        tjs_uint32 rG = neon_scalar_sat_add_byte((dG * sai) >> 8, sG);
+        tjs_uint32 rR = neon_scalar_sat_add_byte((dR * sai) >> 8, sR);
+        return (new_a << 24) | (rR << 16) | (rG << 8) | rB;
     }
     inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
     {
-        return ms; // TODO 暫定
+        uint8x8_t sa     = A_VEC(ms);
+        uint8x8_t da     = A_VEC(md);
+        uint8x8_t sa_inv = vmvn_u8(sa);
+        // da_new = da + sa - (da*sa>>8) ; これは uint8 の sat 加算で表現可能?
+        // sat: da + sa - x where x = (da*sa)>>8 ≤ min(da, sa) → 結果は ≤ 255。
+        // ここでは vshrn_n_u16(vmull_u8(da, sa), 8) = (da*sa)>>8 を計算してから
+        // (da + sa) - x を 16bit で計算 → 8bit にナロー saturate。
+        uint16x8_t prod = vmull_u8(da, sa);
+        uint8x8_t  pm   = vshrn_n_u16(prod, 8); // (da*sa) >> 8
+        // 16bit に揃えてから減算 (uint16 で大きさは収まる)
+        uint16x8_t da16 = vmovl_u8(da);
+        uint16x8_t sa16 = vmovl_u8(sa);
+        uint16x8_t pm16 = vmovl_u8(pm);
+        uint16x8_t sum  = vsubq_u16(vaddq_u16(da16, sa16), pm16);
+        uint8x8_t  new_a = vqmovn_u16(sum); // saturate 255
+
+        B_VEC(md) = vqadd_u8(vshrn_n_u16(vmull_u8(B_VEC(md), sa_inv), 8), B_VEC(ms));
+        G_VEC(md) = vqadd_u8(vshrn_n_u16(vmull_u8(G_VEC(md), sa_inv), 8), G_VEC(ms));
+        R_VEC(md) = vqadd_u8(vshrn_n_u16(vmull_u8(R_VEC(md), sa_inv), 8), R_VEC(ms));
+        A_VEC(md) = new_a;
+        return md;
     }
-#if REFERENCE_AVX2
-
-    const uint8x8x4_t zero_;
-    inline neon_premul_alpha_blend_a_functor()
-    : zero_(_mm256_setzero_si256())
-    {}
-    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
-    {
-        __m128i ms = _mm_cvtsi32_si128(s);
-        __m128i mo = ms;
-        mo         = _mm_srli_epi64(mo, 24);                           // sopa
-        mo         = _mm_shufflelo_epi16(mo, _MM_SHUFFLE(0, 0, 0, 0)); // 00Sa00Sa00Sa00Sa
-        ms         = _mm_cvtepu8_epi16(ms);                            // 00Sa00Si00Si00Si
-        __m128i md = _mm_cvtsi32_si128(d);
-        md         = _mm_cvtepu8_epi16(md); // 00Da00Di00Di00Di
-        __m128i md2 = md;
-        md2         = _mm_mullo_epi16(md2, mo); // d * sopa
-        md2         = _mm_srli_epi16(md2, 8);   // 00 SaDa 00 SaDi 00 SaDi 00 SaDi
-        md          = _mm_sub_epi16(md, md2);   // d - d*sopa
-        md          = _mm_add_epi16(md, ms);    // (d-d*sopa) + s
-        md          = _mm_packus_epi16(md, md);
-        return _mm_cvtsi128_si32(md);
-    }
-    inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
-    {
-        uint8x8x4_t mo0 = ms;
-        mo0             = _mm256_srli_epi32(mo0, 24);
-        mo0             = _mm256_packs_epi32(mo0, mo0);    // 0 1 2 3 0 1 2 3
-        mo0             = _mm256_unpacklo_epi16(mo0, mo0); // 0 0 1 1 2 2 3 3
-        uint8x8x4_t mo1 = mo0;
-        mo1             = _mm256_unpacklo_epi16(mo1, mo1); // 0 0 0 0 1 1 1 1 o[1]
-        mo0             = _mm256_unpackhi_epi16(mo0, mo0); // 2 2 2 2 3 3 3 3 o[0]
-
-        uint8x8x4_t md1  = md;
-        uint8x8x4_t ms1  = ms;
-        md               = _mm256_unpackhi_epi8(md, zero_); // 00dd00dd00dd00dd d[0]
-        uint8x8x4_t md02 = md;
-        ms               = _mm256_unpackhi_epi8(ms, zero_);
-        md02             = _mm256_mullo_epi16(md02, mo0); // d * sopa | d[0]
-        md02 = _mm256_srli_epi16(md02, 8); // 00 SaDa 00 SaDi 00 SaDi 00 SaDi | d[0]
-        md   = _mm256_sub_epi16(md, md02); // d - d*sopa | d[0]
-        md   = _mm256_add_epi16(md, ms);   // d - d*sopa + s | d[0]
-
-        md1              = _mm256_unpacklo_epi8(md1, zero_); // 00dd00dd00dd00dd d[1]
-        uint8x8x4_t md12 = md1;
-        ms1              = _mm256_unpacklo_epi8(ms1, zero_);
-        md12             = _mm256_mullo_epi16(md12, mo1); // d * sopa | d[1]
-        md12 = _mm256_srli_epi16(md12, 8);  // 00 SaDa 00 SaDi 00 SaDi 00 SaDi | d[1]
-        md1  = _mm256_sub_epi16(md1, md12); // d - d*sopa | d[1]
-        md1  = _mm256_add_epi16(md1, ms1);  // d - d*sopa + s | d[1]
-
-        return _mm256_packus_epi16(md1, md);
-    }
-#endif
 };
 
 // opacity値を使う
@@ -578,6 +462,7 @@ struct neon_const_alpha_blend_a_functor
     inline neon_const_alpha_blend_a_functor(tjs_int32 opa)
     : opa32_(opa << 24)
     , opa8_(opa & 0xff)
+    , blend_{}
     {}
 
     inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
@@ -612,8 +497,347 @@ typedef neon_const_alpha_blend_functor neon_const_alpha_blend_sd_functor;
 // neon_const_alpha_blend_a_functor = TVPConstAlphaBlend_a
 
 //--------------------------------------------------------------------
-// ここまでアルファブレンド
-// 加算合成などはNEONでは未対応
+// ここから加算/減算/乗算/Lighten/Darken/Screen 系 (PsBlend ではない素朴なブレンド)
+// SSE2 / AVX2 と同型のパターンで実装。SIMD parity test の harness で
+// SSE2 と byte-exact 一致させる方針 (PsBlend tolerance とは別カテゴリ)。
 //--------------------------------------------------------------------
+
+// TVPAddBlend: dst = sat( dst + src )  全チャネル
+struct neon_add_blend_functor
+{
+    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
+    {
+        tjs_uint32 b = neon_scalar_sat_add_byte(d & 0xff, s & 0xff);
+        tjs_uint32 g = neon_scalar_sat_add_byte((d >> 8) & 0xff, (s >> 8) & 0xff);
+        tjs_uint32 r = neon_scalar_sat_add_byte((d >> 16) & 0xff, (s >> 16) & 0xff);
+        tjs_uint32 a = neon_scalar_sat_add_byte((d >> 24) & 0xff, (s >> 24) & 0xff);
+        return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+    inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
+    {
+        B_VEC(md) = vqadd_u8(B_VEC(md), B_VEC(ms));
+        G_VEC(md) = vqadd_u8(G_VEC(md), G_VEC(ms));
+        R_VEC(md) = vqadd_u8(R_VEC(md), R_VEC(ms));
+        A_VEC(md) = vqadd_u8(A_VEC(md), A_VEC(ms));
+        return md;
+    }
+};
+struct neon_add_blend_hda_functor : public neon_add_blend_functor
+{
+    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
+    {
+        return (d & 0xff000000) | (neon_add_blend_functor::operator()(d, s) & 0x00ffffff);
+    }
+    inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
+    {
+        uint8x8_t da = A_VEC(md);
+        md            = neon_add_blend_functor::operator()(md, ms);
+        A_VEC(md)     = da;
+        return md;
+    }
+};
+// _o variant: src を opa で減衰させてから add (sat にはならない、足し込んでから clamp)
+struct neon_add_blend_o_functor
+{
+    const tjs_int32 opa_scalar_;
+    const uint8x8_t opa_vec_;
+    inline neon_add_blend_o_functor(tjs_int32 opa)
+    : opa_scalar_(opa)
+    , opa_vec_(vdup_n_u8((uint8_t)opa))
+    {}
+    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
+    {
+        // C ref (add_blend_func) は s を opa でスケールする際に alpha バイトを
+        // マスクで除外してから全チャネル sat add するので、alpha は dest 側が
+        // そのまま残る (sat(da + 0) = da)
+        tjs_uint32 sB = ((s & 0xff) * (tjs_uint32)opa_scalar_) >> 8;
+        tjs_uint32 sG = (((s >> 8) & 0xff) * (tjs_uint32)opa_scalar_) >> 8;
+        tjs_uint32 sR = (((s >> 16) & 0xff) * (tjs_uint32)opa_scalar_) >> 8;
+        tjs_uint32 b  = neon_scalar_sat_add_byte(d & 0xff, sB);
+        tjs_uint32 g  = neon_scalar_sat_add_byte((d >> 8) & 0xff, sG);
+        tjs_uint32 r  = neon_scalar_sat_add_byte((d >> 16) & 0xff, sR);
+        return (d & 0xff000000u) | (r << 16) | (g << 8) | b;
+    }
+    inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
+    {
+        B_VEC(md) = vqadd_u8(B_VEC(md), vshrn_n_u16(vmull_u8(B_VEC(ms), opa_vec_), 8));
+        G_VEC(md) = vqadd_u8(G_VEC(md), vshrn_n_u16(vmull_u8(G_VEC(ms), opa_vec_), 8));
+        R_VEC(md) = vqadd_u8(R_VEC(md), vshrn_n_u16(vmull_u8(R_VEC(ms), opa_vec_), 8));
+        // A_VEC(md) はそのまま残す (dest alpha 保持)
+        return md;
+    }
+};
+typedef neon_add_blend_o_functor neon_add_blend_hda_o_functor; // SSE2 と同じく alias
+
+// TVPSubBlend: dst = sat( dst - (255 - src) ) 全チャネル
+struct neon_sub_blend_functor
+{
+    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
+    {
+        tjs_uint32 ns = ~s;
+        auto sub     = [](tjs_uint32 a, tjs_uint32 b) -> tjs_uint32 {
+            return a > b ? a - b : 0;
+        };
+        tjs_uint32 b = sub(d & 0xff, ns & 0xff);
+        tjs_uint32 g = sub((d >> 8) & 0xff, (ns >> 8) & 0xff);
+        tjs_uint32 r = sub((d >> 16) & 0xff, (ns >> 16) & 0xff);
+        tjs_uint32 a = sub((d >> 24) & 0xff, (ns >> 24) & 0xff);
+        return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+    inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
+    {
+        B_VEC(md) = vqsub_u8(B_VEC(md), vmvn_u8(B_VEC(ms)));
+        G_VEC(md) = vqsub_u8(G_VEC(md), vmvn_u8(G_VEC(ms)));
+        R_VEC(md) = vqsub_u8(R_VEC(md), vmvn_u8(R_VEC(ms)));
+        A_VEC(md) = vqsub_u8(A_VEC(md), vmvn_u8(A_VEC(ms)));
+        return md;
+    }
+};
+struct neon_sub_blend_hda_functor : public neon_sub_blend_functor
+{
+    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
+    {
+        return (d & 0xff000000) | (neon_sub_blend_functor::operator()(d, s) & 0x00ffffff);
+    }
+    inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
+    {
+        uint8x8_t da = A_VEC(md);
+        md            = neon_sub_blend_functor::operator()(md, ms);
+        A_VEC(md)     = da;
+        return md;
+    }
+};
+struct neon_sub_blend_o_functor
+{
+    const tjs_int32 opa_scalar_;
+    const uint8x8_t opa_vec_;
+    inline neon_sub_blend_o_functor(tjs_int32 opa)
+    : opa_scalar_(opa)
+    , opa_vec_(vdup_n_u8((uint8_t)opa))
+    {}
+    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
+    {
+        // ns = ~s, then ns * opa >> 8, sat sub from d
+        tjs_uint32 ns = ~s;
+        auto submul   = [&](tjs_uint32 dch, tjs_uint32 nsch) -> tjs_uint32 {
+            tjs_uint32 sub = (nsch * (tjs_uint32)opa_scalar_) >> 8;
+            return dch > sub ? dch - sub : 0;
+        };
+        tjs_uint32 b = submul(d & 0xff, ns & 0xff);
+        tjs_uint32 g = submul((d >> 8) & 0xff, (ns >> 8) & 0xff);
+        tjs_uint32 r = submul((d >> 16) & 0xff, (ns >> 16) & 0xff);
+        tjs_uint32 a = submul((d >> 24) & 0xff, (ns >> 24) & 0xff);
+        return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+    inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
+    {
+        uint8x8_t nsB = vmvn_u8(B_VEC(ms));
+        uint8x8_t nsG = vmvn_u8(G_VEC(ms));
+        uint8x8_t nsR = vmvn_u8(R_VEC(ms));
+        uint8x8_t nsA = vmvn_u8(A_VEC(ms));
+        B_VEC(md) = vqsub_u8(B_VEC(md), vshrn_n_u16(vmull_u8(nsB, opa_vec_), 8));
+        G_VEC(md) = vqsub_u8(G_VEC(md), vshrn_n_u16(vmull_u8(nsG, opa_vec_), 8));
+        R_VEC(md) = vqsub_u8(R_VEC(md), vshrn_n_u16(vmull_u8(nsR, opa_vec_), 8));
+        A_VEC(md) = vqsub_u8(A_VEC(md), vshrn_n_u16(vmull_u8(nsA, opa_vec_), 8));
+        return md;
+    }
+};
+typedef neon_sub_blend_o_functor neon_sub_blend_hda_o_functor;
+
+// TVPMulBlend: dst = (dst * src) >> 8 (全チャネル、結果 alpha は C ref と同じく 0)
+struct neon_mul_blend_functor
+{
+    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
+    {
+        tjs_uint32 b = ((d & 0xff) * (s & 0xff)) >> 8;
+        tjs_uint32 g = (((d >> 8) & 0xff) * ((s >> 8) & 0xff)) >> 8;
+        tjs_uint32 r = (((d >> 16) & 0xff) * ((s >> 16) & 0xff)) >> 8;
+        return (r << 16) | (g << 8) | b;
+    }
+    inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
+    {
+        B_VEC(md) = vshrn_n_u16(vmull_u8(B_VEC(md), B_VEC(ms)), 8);
+        G_VEC(md) = vshrn_n_u16(vmull_u8(G_VEC(md), G_VEC(ms)), 8);
+        R_VEC(md) = vshrn_n_u16(vmull_u8(R_VEC(md), R_VEC(ms)), 8);
+        A_VEC(md) = vdup_n_u8(0);
+        return md;
+    }
+};
+struct neon_mul_blend_hda_functor : public neon_mul_blend_functor
+{
+    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
+    {
+        return (d & 0xff000000) | neon_mul_blend_functor::operator()(d, s);
+    }
+    inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
+    {
+        uint8x8_t da = A_VEC(md);
+        md            = neon_mul_blend_functor::operator()(md, ms);
+        A_VEC(md)     = da;
+        return md;
+    }
+};
+
+// TVPMulBlend_o: per byte, s'_b = 255 - (((255 - src_b) * opa) >> 8);
+//                         dst_b = (dst_b * s'_b) >> 8; 結果 alpha = 0
+// C ref (TVPMulBlend_o_c) と SSE2 (sse2_mul_blend_o_functor) の両方と byte-exact 一致。
+// MIN3_VARIATION 経由で _o のみ wired (HDA_o は SSE2/C ref 共に非対応)。
+struct neon_mul_blend_o_functor
+{
+    const tjs_int32 opa_scalar_;
+    const uint8x8_t opa_vec_;
+    inline neon_mul_blend_o_functor(tjs_int32 opa)
+    : opa_scalar_(opa)
+    , opa_vec_(vdup_n_u8((uint8_t)opa))
+    {}
+    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
+    {
+        auto sp = [&](tjs_uint32 sb) -> tjs_uint32 {
+            return 255u - (((255u - sb) * (tjs_uint32)opa_scalar_) >> 8);
+        };
+        tjs_uint32 sB = sp(s & 0xff);
+        tjs_uint32 sG = sp((s >> 8) & 0xff);
+        tjs_uint32 sR = sp((s >> 16) & 0xff);
+        tjs_uint32 b  = ((d & 0xff) * sB) >> 8;
+        tjs_uint32 g  = (((d >> 8) & 0xff) * sG) >> 8;
+        tjs_uint32 r  = (((d >> 16) & 0xff) * sR) >> 8;
+        return (r << 16) | (g << 8) | b;
+    }
+    inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
+    {
+        auto chan = [&](uint8x8_t d_b, uint8x8_t s_b) -> uint8x8_t {
+            uint8x8_t  ns   = vmvn_u8(s_b);                        // 255 - s
+            uint8x8_t  nso8 = vshrn_n_u16(vmull_u8(ns, opa_vec_), 8); // ((255-s)*opa) >> 8
+            uint8x8_t  spv  = vmvn_u8(nso8);                       // 255 - ((255-s)*opa>>8) = s'
+            return vshrn_n_u16(vmull_u8(d_b, spv), 8);             // (d * s') >> 8
+        };
+        B_VEC(md) = chan(B_VEC(md), B_VEC(ms));
+        G_VEC(md) = chan(G_VEC(md), G_VEC(ms));
+        R_VEC(md) = chan(R_VEC(md), R_VEC(ms));
+        A_VEC(md) = vdup_n_u8(0);
+        return md;
+    }
+};
+
+// TVPLightenBlend: max(d, s) per channel (C ref は 32bit 一括 max なので alpha も max)
+struct neon_lighten_blend_functor
+{
+    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
+    {
+        auto mx = [](tjs_uint32 a, tjs_uint32 b) { return a > b ? a : b; };
+        tjs_uint32 b = mx(d & 0xff, s & 0xff);
+        tjs_uint32 g = mx((d >> 8) & 0xff, (s >> 8) & 0xff);
+        tjs_uint32 r = mx((d >> 16) & 0xff, (s >> 16) & 0xff);
+        tjs_uint32 a = mx((d >> 24) & 0xff, (s >> 24) & 0xff);
+        return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+    inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
+    {
+        B_VEC(md) = vmax_u8(B_VEC(md), B_VEC(ms));
+        G_VEC(md) = vmax_u8(G_VEC(md), G_VEC(ms));
+        R_VEC(md) = vmax_u8(R_VEC(md), R_VEC(ms));
+        A_VEC(md) = vmax_u8(A_VEC(md), A_VEC(ms));
+        return md;
+    }
+};
+struct neon_lighten_blend_hda_functor : public neon_lighten_blend_functor
+{
+    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
+    {
+        return (d & 0xff000000) | neon_lighten_blend_functor::operator()(d, s);
+    }
+    inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
+    {
+        uint8x8_t da = A_VEC(md);
+        md            = neon_lighten_blend_functor::operator()(md, ms);
+        A_VEC(md)     = da;
+        return md;
+    }
+};
+
+// TVPDarkenBlend: min(d, s) per channel (C ref は 32bit 一括 min なので alpha も min)
+struct neon_darken_blend_functor
+{
+    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
+    {
+        auto mn = [](tjs_uint32 a, tjs_uint32 b) { return a < b ? a : b; };
+        tjs_uint32 b = mn(d & 0xff, s & 0xff);
+        tjs_uint32 g = mn((d >> 8) & 0xff, (s >> 8) & 0xff);
+        tjs_uint32 r = mn((d >> 16) & 0xff, (s >> 16) & 0xff);
+        tjs_uint32 a = mn((d >> 24) & 0xff, (s >> 24) & 0xff);
+        return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+    inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
+    {
+        B_VEC(md) = vmin_u8(B_VEC(md), B_VEC(ms));
+        G_VEC(md) = vmin_u8(G_VEC(md), G_VEC(ms));
+        R_VEC(md) = vmin_u8(R_VEC(md), R_VEC(ms));
+        A_VEC(md) = vmin_u8(A_VEC(md), A_VEC(ms));
+        return md;
+    }
+};
+struct neon_darken_blend_hda_functor : public neon_darken_blend_functor
+{
+    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
+    {
+        return (d & 0xff000000) | neon_darken_blend_functor::operator()(d, s);
+    }
+    inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
+    {
+        uint8x8_t da = A_VEC(md);
+        md            = neon_darken_blend_functor::operator()(md, ms);
+        A_VEC(md)     = da;
+        return md;
+    }
+};
+
+// TVPScreenBlend: C ref 形式で ~(((~d) * (~s)) >> 8) per channel
+//   (`d + s - (d*s)>>8` と数学的には同じだが、整数 truncation のため byte-exact
+//    には ~d,~s を掛け算する方式でないと ±1 ズレる)
+//   alpha は C ref が ~tmp の上位バイトを常に 0xff にするので固定で 0xff。
+struct neon_screen_blend_functor
+{
+    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
+    {
+        auto sc = [](tjs_uint32 a, tjs_uint32 b) -> tjs_uint32 {
+            tjs_uint32 na = 255 - a;
+            tjs_uint32 nb = 255 - b;
+            return 255 - ((na * nb) >> 8);
+        };
+        tjs_uint32 b = sc(d & 0xff, s & 0xff);
+        tjs_uint32 g = sc((d >> 8) & 0xff, (s >> 8) & 0xff);
+        tjs_uint32 r = sc((d >> 16) & 0xff, (s >> 16) & 0xff);
+        return 0xff000000u | (r << 16) | (g << 8) | b;
+    }
+    inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
+    {
+        auto blend = [](uint8x8_t a, uint8x8_t b) -> uint8x8_t {
+            uint8x8_t na = vmvn_u8(a);
+            uint8x8_t nb = vmvn_u8(b);
+            uint16x8_t prod = vmull_u8(na, nb);        // (~a) * (~b)
+            uint8x8_t  pm   = vshrn_n_u16(prod, 8);     // >> 8
+            return vmvn_u8(pm);                         // ~pm
+        };
+        B_VEC(md) = blend(B_VEC(md), B_VEC(ms));
+        G_VEC(md) = blend(G_VEC(md), G_VEC(ms));
+        R_VEC(md) = blend(R_VEC(md), R_VEC(ms));
+        A_VEC(md) = vdup_n_u8(0xff);
+        return md;
+    }
+};
+struct neon_screen_blend_hda_functor : public neon_screen_blend_functor
+{
+    inline tjs_uint32 operator()(tjs_uint32 d, tjs_uint32 s) const
+    {
+        return (d & 0xff000000) | neon_screen_blend_functor::operator()(d, s);
+    }
+    inline uint8x8x4_t operator()(uint8x8x4_t md, uint8x8x4_t ms) const
+    {
+        uint8x8_t da = A_VEC(md);
+        md            = neon_screen_blend_functor::operator()(md, ms);
+        A_VEC(md)     = da;
+        return md;
+    }
+};
 
 #endif // __BLEND_FUNCTOR_NEON_H__

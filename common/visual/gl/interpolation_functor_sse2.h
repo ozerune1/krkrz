@@ -205,10 +205,10 @@ struct sse2_bilinear_fixy_functor {
 	inline __m128i operator()( const tjs_uint32* src1, const tjs_uint32* src2, __m128i mstart ) const {
 		__m128i offset = mstart;
 		offset = _mm_srli_epi32( offset, 16 );	// >> 16
-		tjs_int o0 = offset.m128i_i32[0];
-		tjs_int o1 = offset.m128i_i32[1];
-		tjs_int o2 = offset.m128i_i32[2];
-		tjs_int o3 = offset.m128i_i32[3];
+		tjs_int o0 = M128I_I32(offset,0);
+		tjs_int o1 = M128I_I32(offset,1);
+		tjs_int o2 = M128I_I32(offset,2);
+		tjs_int o3 = M128I_I32(offset,3);
 
 		__m128i mbx = mstart;
 		mbx = _mm_shufflelo_epi16( mbx, _MM_SHUFFLE( 2, 2, 0, 0 )  );	// sx4 sx3 | sx2 sx2 sx1 sx1 = & 0x0000ffffに近い効果

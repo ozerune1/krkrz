@@ -27,8 +27,11 @@
 //---------------------------------------------------------------------------
 
 void rdft(int, int, float * __restrict, int * __restrict, float * __restrict);
-#if defined(_M_IX86)||defined(_M_X64)
+#if defined(_M_IX86) || defined(_M_X64) || defined(__i386__) || defined(__x86_64__)
 void rdft_sse(int, int, float * __restrict, int * __restrict, float * __restrict);
+#endif
+#if defined(__ARM_NEON) || defined(__aarch64__)
+void rdft_neon(int, int, float * __restrict, int * __restrict, float * __restrict);
 #endif
 
 //---------------------------------------------------------------------------

@@ -7,7 +7,7 @@
 #include "simd_def_x86x64.h"
 
 #include "blend_functor_avx2.h"
-//#include "blend_ps_functor_avx2.h"
+#include "blend_ps_functor_avx2.h"
 //#include "interpolation_functor_avx2.h"
 
 
@@ -231,25 +231,45 @@ static void TVPAdditiveAlphaBlend_HDA_avx2_c(tjs_uint32 *dest, const tjs_uint32 
 static void TVPAdditiveAlphaBlend_a_avx2_c(tjs_uint32 *dest, const tjs_uint32 *src, tjs_int len){
 	copy_func_avx2<avx2_premul_alpha_blend_a_functor>( dest, src, len );
 }
-/*
-DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsAlphaBlend, ps_alpha_blend )
-DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsAddBlend, ps_add_blend )
-DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsSubBlend, ps_sub_blend )
-DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsMulBlend, ps_mul_blend )
-DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsScreenBlend, ps_screen_blend )
-DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsOverlayBlend, ps_overlay_blend )
-DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsHardLightBlend, ps_hardlight_blend )
-DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsSoftLightBlend, ps_softlight_blend )
-DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsColorDodgeBlend, ps_colordodge_blend )
-DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsColorBurnBlend, ps_colorburn_blend )
-DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsColorDodge5Blend, ps_colordodge5_blend )
-DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsLightenBlend, ps_lighten_blend )
-DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsDarkenBlend, ps_darken_blend )
-DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsDiffBlend, ps_diff_blend )
-DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsDiff5Blend, ps_diff5_blend )
+// PsBlend ファミリ — Phase 1 で順次 AVX2 化していく。
+// 各ファミリは base + _o + _HDA + _HDA_o の 4 バリアント。
+DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsAlphaBlend,   ps_alpha_blend )
+DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsAddBlend,     ps_add_blend )
+DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsSubBlend,     ps_sub_blend )
+DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsMulBlend,     ps_mul_blend )
+DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsLightenBlend,   ps_lighten_blend )
+DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsDarkenBlend,    ps_darken_blend )
+DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsDiffBlend,      ps_diff_blend )
+DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsScreenBlend,    ps_screen_blend )
 DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsExclusionBlend, ps_exclusion_blend )
-*/
+DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsDiff5Blend,     ps_diff5_blend )
+DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsOverlayBlend,     ps_overlay_blend )
+DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsHardLightBlend,   ps_hardlight_blend )
+DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsSoftLightBlend,   ps_softlight_blend )
+DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsColorDodgeBlend,  ps_colordodge_blend )
+DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsColorBurnBlend,   ps_colorburn_blend )
+DEFINE_BLEND_FUNCTION_MIN_VARIATION( PsColorDodge5Blend, ps_colordodge5_blend )
 extern void TVPInitializeResampleAVX2();
+// colormap_avx2.cpp で定義 (Phase 2)。base + _o + _a + _ao + _d の 9 関数。
+extern void TVPApplyColorMap65_avx2_c    (tjs_uint32 *, const tjs_uint8 *, tjs_int, tjs_uint32);
+extern void TVPApplyColorMap_avx2_c      (tjs_uint32 *, const tjs_uint8 *, tjs_int, tjs_uint32);
+extern void TVPApplyColorMap65_o_avx2_c  (tjs_uint32 *, const tjs_uint8 *, tjs_int, tjs_uint32, tjs_int);
+extern void TVPApplyColorMap_o_avx2_c    (tjs_uint32 *, const tjs_uint8 *, tjs_int, tjs_uint32, tjs_int);
+extern void TVPApplyColorMap65_a_avx2_c  (tjs_uint32 *, const tjs_uint8 *, tjs_int, tjs_uint32);
+extern void TVPApplyColorMap_a_avx2_c    (tjs_uint32 *, const tjs_uint8 *, tjs_int, tjs_uint32);
+extern void TVPApplyColorMap65_ao_avx2_c (tjs_uint32 *, const tjs_uint8 *, tjs_int, tjs_uint32, tjs_int);
+extern void TVPApplyColorMap_ao_avx2_c   (tjs_uint32 *, const tjs_uint8 *, tjs_int, tjs_uint32, tjs_int);
+extern void TVPApplyColorMap65_d_avx2_c  (tjs_uint32 *, const tjs_uint8 *, tjs_int, tjs_uint32);
+
+// colorfill_avx2.cpp で定義 (Phase 2 D2)。7 関数。
+extern void TVPFillARGB_avx2_c              (tjs_uint32 *, tjs_int, tjs_uint32);
+extern void TVPFillARGB_NC_avx2_c           (tjs_uint32 *, tjs_int, tjs_uint32);
+extern void TVPFillColor_avx2_c             (tjs_uint32 *, tjs_int, tjs_uint32);
+extern void TVPFillMask_avx2_c              (tjs_uint32 *, tjs_int, tjs_uint32);
+extern void TVPConstColorAlphaBlend_avx2_c  (tjs_uint32 *, tjs_int, tjs_uint32, tjs_int);
+extern void TVPConstColorAlphaBlend_d_avx2_c(tjs_uint32 *, tjs_int, tjs_uint32, tjs_int);
+extern void TVPConstColorAlphaBlend_a_avx2_c(tjs_uint32 *, tjs_int, tjs_uint32, tjs_int);
+
 void TVPGL_AVX2_Init() {
 	if( TVPCPUType & TVP_CPU_HAS_AVX2 ) {
 		TVPAdditiveAlphaBlend = TVPAdditiveAlphaBlend_avx2_c;
@@ -277,51 +297,93 @@ void TVPGL_AVX2_Init() {
 		TVPCopyMask = TVPCopyMask_avx2_c;
 		TVPCopyOpaqueImage = TVPCopyOpaqueImage_avx2_c;
 
+		// Phase 1: AVX2 PsBlend ファミリ (順次追加中)
+		TVPPsAlphaBlend       = TVPPsAlphaBlend_avx2_c;
+		TVPPsAlphaBlend_o     = TVPPsAlphaBlend_o_avx2_c;
+		TVPPsAlphaBlend_HDA   = TVPPsAlphaBlend_HDA_avx2_c;
+		TVPPsAlphaBlend_HDA_o = TVPPsAlphaBlend_HDA_o_avx2_c;
+		TVPPsAddBlend         = TVPPsAddBlend_avx2_c;
+		TVPPsAddBlend_o       = TVPPsAddBlend_o_avx2_c;
+		TVPPsAddBlend_HDA     = TVPPsAddBlend_HDA_avx2_c;
+		TVPPsAddBlend_HDA_o   = TVPPsAddBlend_HDA_o_avx2_c;
+		TVPPsSubBlend         = TVPPsSubBlend_avx2_c;
+		TVPPsSubBlend_o       = TVPPsSubBlend_o_avx2_c;
+		TVPPsSubBlend_HDA     = TVPPsSubBlend_HDA_avx2_c;
+		TVPPsSubBlend_HDA_o   = TVPPsSubBlend_HDA_o_avx2_c;
+		TVPPsMulBlend         = TVPPsMulBlend_avx2_c;
+		TVPPsMulBlend_o       = TVPPsMulBlend_o_avx2_c;
+		TVPPsMulBlend_HDA     = TVPPsMulBlend_HDA_avx2_c;
+		TVPPsMulBlend_HDA_o   = TVPPsMulBlend_HDA_o_avx2_c;
+		TVPPsLightenBlend       = TVPPsLightenBlend_avx2_c;
+		TVPPsLightenBlend_o     = TVPPsLightenBlend_o_avx2_c;
+		TVPPsLightenBlend_HDA   = TVPPsLightenBlend_HDA_avx2_c;
+		TVPPsLightenBlend_HDA_o = TVPPsLightenBlend_HDA_o_avx2_c;
+		TVPPsDarkenBlend        = TVPPsDarkenBlend_avx2_c;
+		TVPPsDarkenBlend_o      = TVPPsDarkenBlend_o_avx2_c;
+		TVPPsDarkenBlend_HDA    = TVPPsDarkenBlend_HDA_avx2_c;
+		TVPPsDarkenBlend_HDA_o  = TVPPsDarkenBlend_HDA_o_avx2_c;
+		TVPPsDiffBlend          = TVPPsDiffBlend_avx2_c;
+		TVPPsDiffBlend_o        = TVPPsDiffBlend_o_avx2_c;
+		TVPPsDiffBlend_HDA      = TVPPsDiffBlend_HDA_avx2_c;
+		TVPPsDiffBlend_HDA_o    = TVPPsDiffBlend_HDA_o_avx2_c;
+		TVPPsScreenBlend         = TVPPsScreenBlend_avx2_c;
+		TVPPsScreenBlend_o       = TVPPsScreenBlend_o_avx2_c;
+		TVPPsScreenBlend_HDA     = TVPPsScreenBlend_HDA_avx2_c;
+		TVPPsScreenBlend_HDA_o   = TVPPsScreenBlend_HDA_o_avx2_c;
+		TVPPsExclusionBlend      = TVPPsExclusionBlend_avx2_c;
+		TVPPsExclusionBlend_o    = TVPPsExclusionBlend_o_avx2_c;
+		TVPPsExclusionBlend_HDA  = TVPPsExclusionBlend_HDA_avx2_c;
+		TVPPsExclusionBlend_HDA_o = TVPPsExclusionBlend_HDA_o_avx2_c;
+		TVPPsDiff5Blend          = TVPPsDiff5Blend_avx2_c;
+		TVPPsDiff5Blend_o        = TVPPsDiff5Blend_o_avx2_c;
+		TVPPsDiff5Blend_HDA      = TVPPsDiff5Blend_HDA_avx2_c;
+		TVPPsDiff5Blend_HDA_o    = TVPPsDiff5Blend_HDA_o_avx2_c;
+		TVPPsOverlayBlend         = TVPPsOverlayBlend_avx2_c;
+		TVPPsOverlayBlend_o       = TVPPsOverlayBlend_o_avx2_c;
+		TVPPsOverlayBlend_HDA     = TVPPsOverlayBlend_HDA_avx2_c;
+		TVPPsOverlayBlend_HDA_o   = TVPPsOverlayBlend_HDA_o_avx2_c;
+		TVPPsHardLightBlend       = TVPPsHardLightBlend_avx2_c;
+		TVPPsHardLightBlend_o     = TVPPsHardLightBlend_o_avx2_c;
+		TVPPsHardLightBlend_HDA   = TVPPsHardLightBlend_HDA_avx2_c;
+		TVPPsHardLightBlend_HDA_o = TVPPsHardLightBlend_HDA_o_avx2_c;
+		TVPPsSoftLightBlend         = TVPPsSoftLightBlend_avx2_c;
+		TVPPsSoftLightBlend_o       = TVPPsSoftLightBlend_o_avx2_c;
+		TVPPsSoftLightBlend_HDA     = TVPPsSoftLightBlend_HDA_avx2_c;
+		TVPPsSoftLightBlend_HDA_o   = TVPPsSoftLightBlend_HDA_o_avx2_c;
+		TVPPsColorDodgeBlend        = TVPPsColorDodgeBlend_avx2_c;
+		TVPPsColorDodgeBlend_o      = TVPPsColorDodgeBlend_o_avx2_c;
+		TVPPsColorDodgeBlend_HDA    = TVPPsColorDodgeBlend_HDA_avx2_c;
+		TVPPsColorDodgeBlend_HDA_o  = TVPPsColorDodgeBlend_HDA_o_avx2_c;
+		TVPPsColorBurnBlend         = TVPPsColorBurnBlend_avx2_c;
+		TVPPsColorBurnBlend_o       = TVPPsColorBurnBlend_o_avx2_c;
+		TVPPsColorBurnBlend_HDA     = TVPPsColorBurnBlend_HDA_avx2_c;
+		TVPPsColorBurnBlend_HDA_o   = TVPPsColorBurnBlend_HDA_o_avx2_c;
+		TVPPsColorDodge5Blend       = TVPPsColorDodge5Blend_avx2_c;
+		TVPPsColorDodge5Blend_o     = TVPPsColorDodge5Blend_o_avx2_c;
+		TVPPsColorDodge5Blend_HDA   = TVPPsColorDodge5Blend_HDA_avx2_c;
+		TVPPsColorDodge5Blend_HDA_o = TVPPsColorDodge5Blend_HDA_o_avx2_c;
+
+		// Phase 2 C3/C4: ApplyColorMap 9 関数 (SSE2 wired 分フルカバー)
+		TVPApplyColorMap65    = TVPApplyColorMap65_avx2_c;
+		TVPApplyColorMap      = TVPApplyColorMap_avx2_c;
+		TVPApplyColorMap65_o  = TVPApplyColorMap65_o_avx2_c;
+		TVPApplyColorMap_o    = TVPApplyColorMap_o_avx2_c;
+		TVPApplyColorMap65_a  = TVPApplyColorMap65_a_avx2_c;
+		TVPApplyColorMap_a    = TVPApplyColorMap_a_avx2_c;
+		TVPApplyColorMap65_ao = TVPApplyColorMap65_ao_avx2_c;
+		TVPApplyColorMap_ao   = TVPApplyColorMap_ao_avx2_c;
+		TVPApplyColorMap65_d  = TVPApplyColorMap65_d_avx2_c;
+
+		// Phase 2 D2: colorfill 7 関数
+		TVPFillARGB              = TVPFillARGB_avx2_c;
+		TVPFillARGB_NC           = TVPFillARGB_NC_avx2_c;
+		TVPFillColor             = TVPFillColor_avx2_c;
+		TVPFillMask              = TVPFillMask_avx2_c;
+		TVPConstColorAlphaBlend   = TVPConstColorAlphaBlend_avx2_c;
+		TVPConstColorAlphaBlend_d = TVPConstColorAlphaBlend_d_avx2_c;
+		TVPConstColorAlphaBlend_a = TVPConstColorAlphaBlend_a_avx2_c;
+
 #if 0
-		TVPPsAlphaBlend =  TVPPsAlphaBlend_avx2_c;
-		TVPPsAlphaBlend_o =  TVPPsAlphaBlend_o_avx2_c;
-		TVPPsAlphaBlend_HDA =  TVPPsAlphaBlend_HDA_avx2_c;
-		TVPPsAlphaBlend_HDA_o =  TVPPsAlphaBlend_HDA_o_avx2_c;
-		TVPPsAddBlend =  TVPPsAddBlend_avx2_c;
-		TVPPsAddBlend_o =  TVPPsAddBlend_o_avx2_c;
-		TVPPsAddBlend_HDA =  TVPPsAddBlend_HDA_avx2_c;
-		TVPPsAddBlend_HDA_o =  TVPPsAddBlend_HDA_o_avx2_c;	
-		TVPPsSubBlend =  TVPPsSubBlend_avx2_c;
-		TVPPsSubBlend_o =  TVPPsSubBlend_o_avx2_c;
-		TVPPsSubBlend_HDA =  TVPPsSubBlend_HDA_avx2_c;
-		TVPPsSubBlend_HDA_o =  TVPPsSubBlend_HDA_o_avx2_c;
-		TVPPsMulBlend =  TVPPsMulBlend_avx2_c;
-		TVPPsMulBlend_o =  TVPPsMulBlend_o_avx2_c;
-		TVPPsMulBlend_HDA =  TVPPsMulBlend_HDA_avx2_c;
-		TVPPsMulBlend_HDA_o =  TVPPsMulBlend_HDA_o_avx2_c;
-		TVPPsScreenBlend =  TVPPsScreenBlend_avx2_c;
-		TVPPsScreenBlend_o =  TVPPsScreenBlend_o_avx2_c;
-		TVPPsScreenBlend_HDA =  TVPPsScreenBlend_HDA_avx2_c;
-		TVPPsScreenBlend_HDA_o =  TVPPsScreenBlend_HDA_o_avx2_c;
-		TVPPsOverlayBlend =  TVPPsOverlayBlend_avx2_c;
-		TVPPsOverlayBlend_o =  TVPPsOverlayBlend_o_avx2_c;
-		TVPPsOverlayBlend_HDA =  TVPPsOverlayBlend_HDA_avx2_c;
-		TVPPsOverlayBlend_HDA_o =  TVPPsOverlayBlend_HDA_o_avx2_c;
-		TVPPsHardLightBlend =  TVPPsHardLightBlend_avx2_c;
-		TVPPsHardLightBlend_o =  TVPPsHardLightBlend_o_avx2_c;
-		TVPPsHardLightBlend_HDA =  TVPPsHardLightBlend_HDA_avx2_c;
-		TVPPsHardLightBlend_HDA_o =  TVPPsHardLightBlend_HDA_o_avx2_c;
-		TVPPsSoftLightBlend =  TVPPsSoftLightBlend_avx2_c;
-		TVPPsSoftLightBlend_o =  TVPPsSoftLightBlend_o_avx2_c;
-		TVPPsSoftLightBlend_HDA =  TVPPsSoftLightBlend_HDA_avx2_c;
-		TVPPsSoftLightBlend_HDA_o =  TVPPsSoftLightBlend_HDA_o_avx2_c;
-		TVPPsColorDodgeBlend =  TVPPsColorDodgeBlend_avx2_c;
-		TVPPsColorDodgeBlend_o =  TVPPsColorDodgeBlend_o_avx2_c;
-		TVPPsColorDodgeBlend_HDA =  TVPPsColorDodgeBlend_HDA_avx2_c;
-		TVPPsColorDodgeBlend_HDA_o =  TVPPsColorDodgeBlend_HDA_o_avx2_c;
-		TVPPsColorDodge5Blend =  TVPPsColorDodge5Blend_avx2_c;
-		TVPPsColorDodge5Blend_o =  TVPPsColorDodge5Blend_o_avx2_c;
-		TVPPsColorDodge5Blend_HDA =  TVPPsColorDodge5Blend_HDA_avx2_c;
-		TVPPsColorDodge5Blend_HDA_o =  TVPPsColorDodge5Blend_HDA_o_avx2_c;
-		TVPPsColorBurnBlend =  TVPPsColorBurnBlend_avx2_c;
-		TVPPsColorBurnBlend_o =  TVPPsColorBurnBlend_o_avx2_c;
-		TVPPsColorBurnBlend_HDA =  TVPPsColorBurnBlend_HDA_avx2_c;
-		TVPPsColorBurnBlend_HDA_o =  TVPPsColorBurnBlend_HDA_o_avx2_c;
 		TVPPsLightenBlend =  TVPPsLightenBlend_avx2_c;
 		TVPPsLightenBlend_o =  TVPPsLightenBlend_o_avx2_c;
 		TVPPsLightenBlend_HDA =  TVPPsLightenBlend_HDA_avx2_c;

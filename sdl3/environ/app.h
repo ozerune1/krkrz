@@ -70,7 +70,7 @@ public:
 	virtual void AppQuit(){}
 
 	// システムパス初期化
-	virtual void InitPath() = 0;
+	virtual bool InitPath() = 0;
 
 #ifdef USE_SPLASHWINDOW
 	// スプラッシュ画面関連

@@ -20,6 +20,7 @@
 #include "Exception.h"
 #include <intrin.h>
 #include "MsgImpl.h"
+#include "cpu_detect.h"
 
 #pragma intrinsic(__rdtsc)
 
@@ -46,16 +47,11 @@ static bool TVPCPUChecked = false;
 //---------------------------------------------------------------------------
 static void TVPGetCPUTypeForOne()
 {
-#if 1
-	TVPCheckCPU(); // in detect_cpu.nas
-#else
-	__try {
-		TVPCheckCPU(); // in detect_cpu.nas
-	} __except(EXCEPTION_EXECUTE_HANDLER) {
-		// exception had been ocured
-		throw Exception( TVPCpuCheckFailure );
-	}
-#endif
+	// 旧コメント "in detect_cpu.nas" は NASM 製の cpuid 実装を呼ぶ前提だったが、
+	// 現在は common/visual/IA32/detect_cpu.cpp の cpuid intrinsics 経由で
+	// 走る。SEH ガードで例外を Exception 化していた経路はあったが、cpuid は
+	// x86 baseline 命令で例外を投げないため不要。
+	TVPCheckCPU();
 
 	// check OSFXSR WinXP以降ならサポートしているので、もうこのチェックは無意味かな
 #ifndef TJS_64BIT_OS
@@ -215,20 +211,6 @@ static ttstr TVPDumpCPUInfo(tjs_int cpu_num)
 //---------------------------------------------------------------------------
 // TVPDetectCPU
 //---------------------------------------------------------------------------
-static void TVPDisableCPU(tjs_uint32 featurebit, const tjs_char *name)
-{
-	tTJSVariant val;
-	ttstr str;
-	if(TVPGetCommandLine(name, &val))
-	{
-		str = val;
-		if(str == TJS_W("no"))
-			TVPCPUType &=~ featurebit;
-		else if(str == TJS_W("force"))
-			TVPCPUType |= featurebit;
-	}
-}
-//---------------------------------------------------------------------------
 void TVPDetectCPU()
 {
 	if(TVPCPUChecked) return;
@@ -317,24 +299,9 @@ void TVPDetectCPU()
 	TVPCPUType &= ~ TVP_CPU_FEATURE_MASK;
 	TVPCPUType |= features;
 
-	// Disable or enable cpu features by option
-	TVPDisableCPU(TVP_CPU_HAS_MMX,  TJS_W("-cpummx"));
-	TVPDisableCPU(TVP_CPU_HAS_3DN,  TJS_W("-cpu3dn"));
-	TVPDisableCPU(TVP_CPU_HAS_SSE,  TJS_W("-cpusse"));
-	TVPDisableCPU(TVP_CPU_HAS_CMOV, TJS_W("-cpucmov"));
-	TVPDisableCPU(TVP_CPU_HAS_E3DN, TJS_W("-cpue3dn"));
-	TVPDisableCPU(TVP_CPU_HAS_EMMX, TJS_W("-cpuemmx"));
-	TVPDisableCPU(TVP_CPU_HAS_SSE2, TJS_W("-cpusse2"));
-
-	TVPDisableCPU(TVP_CPU_HAS_SSE3, TJS_W("-cpusse3"));
-	TVPDisableCPU(TVP_CPU_HAS_SSSE3, TJS_W("-cpussse3"));
-	TVPDisableCPU(TVP_CPU_HAS_SSE41, TJS_W("-cpusse41"));
-	TVPDisableCPU(TVP_CPU_HAS_SSE42, TJS_W("-cpusse42"));
-	TVPDisableCPU(TVP_CPU_HAS_SSE4a, TJS_W("-cpusse4a"));
-	TVPDisableCPU(TVP_CPU_HAS_AVX, TJS_W("-cpuavx"));
-	TVPDisableCPU(TVP_CPU_HAS_AVX2, TJS_W("-cpuavx2"));
-	TVPDisableCPU(TVP_CPU_HAS_FMA3, TJS_W("-cpufma3"));
-	TVPDisableCPU(TVP_CPU_HAS_AES, TJS_W("-cpuaes"));
+	// Disable or enable cpu features by command-line option
+	// (共通実装: common/visual/cpu_detect.cpp)
+	TVPApplyCPUFeatureOverrides();
 
 	if(TVPCPUType == 0)
 		throw Exception( TVPFormatMessage(TVPCpuCheckFailureNotSupprtedCpu, cpuinfo).c_str() );

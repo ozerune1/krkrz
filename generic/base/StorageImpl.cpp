@@ -113,7 +113,8 @@ bool TJS_INTF_METHOD tTVPFileMedia::CheckExistentStorage(const ttstr &name)
 	if(name.IsEmpty()) return false;
 
 	ttstr _name(name);
-	GetLocalName(_name);
+	GetLocallyAccessibleName(_name);
+	if(_name.IsEmpty()) return false;
 
 	return TVPCheckExistentLocalFile(_name);
 }
@@ -476,11 +477,30 @@ retry:
 tTVPPluginHolder::tTVPPluginHolder(const ttstr &aname)
 : LocalTempStorageHolder(nullptr)
 {
-	// /data/data/(パッケージ名)/lib/
-	tjs_string sopath = tjs_string(TJS_W("file://")) + tjs_string(Application->PluginPath()) + aname.AsStdString();
-	//tjs_string sopath = tjs_string(TJS_W("/data/data/")) + tjs_string(Application->GetPackageName()) + tjs_string(TJS_W("/lib/")) + aname.AsStdString();
-	ttstr place( sopath.c_str() );
-	LocalTempStorageHolder = new tTVPLocalTempStorageHolder(place);
+	// android はアーカイブ内プラグイン不可
+#ifndef __ANDROID__
+	// search in TVP storage system
+	ttstr place(TVPGetPlacedPath(aname));
+	if(!place.IsEmpty()) {
+		LocalTempStorageHolder = new tTVPLocalTempStorageHolder(place);
+		return;
+	}
+#endif
+	// not found in TVP storage system; search exepath, exepath\plugin	
+	ttstr basepath = Application->AppPath();
+	ttstr pname = basepath + aname;
+	if(TVPCheckExistentLocalFile(pname)) {
+		LocalPath = pname;
+		return;
+	}
+
+	basepath = Application->PluginPath();
+	pname = basepath + aname;
+	if(TVPCheckExistentLocalFile(pname))
+	{
+		LocalPath = pname;
+		return;
+	}
 }
 //---------------------------------------------------------------------------
 tTVPPluginHolder::~tTVPPluginHolder()

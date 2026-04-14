@@ -237,20 +237,45 @@ tTVPPlugin::tTVPPlugin(const ttstr & name) : Name(name), Instance(nullptr),
 	}
 
 	// load shared library
-    // check libXXX...
-    ttstr soname = name.AsLowerCase();
-    if( soname.GetLen() <= 3 ||
-        soname[0] != TJS_W('l') ||
-        soname[1] != TJS_W('i') ||
-        soname[2] != TJS_W('b') ) {
-        soname = TJS_W("lib") + soname;
-    }
-    // check libXXX.so or dll
-    tjs_int len = soname.GetLen();
-    if( soname[len-1] == TJS_W('l') && soname[len-2] == TJS_W('l') && soname[len-3] == TJS_W('d') ) {
-        tjs_string extso = ChangeFileExt( soname.AsStdString(), TJS_W("so") );
-        soname = ttstr( extso );
-    }
+	ttstr soname = name;
+	tjs_int len = soname.GetLen();
+	bool isDll = len >= 4 &&
+		soname[len-1] == TJS_W('l') &&
+		soname[len-2] == TJS_W('l') &&
+		soname[len-3] == TJS_W('d') &&
+		soname[len-4] == TJS_W('.');
+
+	if(isDll) {
+#if defined(_WIN32)
+		// Keep XXX.dll as-is on Windows.
+#elif defined(__APPLE__)
+		if( soname.GetLen() <= 3 ||
+			soname[0] != TJS_W('l') ||
+			soname[1] != TJS_W('i') ||
+			soname[2] != TJS_W('b') ) {
+			soname = TJS_W("lib") + soname;
+		}
+		tjs_string ext = ChangeFileExt( soname.AsStdString(), TJS_W("dylib") );
+		soname = ttstr( ext );
+#else
+		if( soname.GetLen() <= 3 ||
+			soname[0] != TJS_W('l') ||
+			soname[1] != TJS_W('i') ||
+			soname[2] != TJS_W('b') ) {
+			soname = TJS_W("lib") + soname;
+		}
+		tjs_string ext = ChangeFileExt( soname.AsStdString(), TJS_W("so") );
+		soname = ttstr( ext );
+#endif
+	} else {
+		// Keep existing behavior for non-dll names.
+		if( soname.GetLen() <= 3 ||
+			soname[0] != TJS_W('l') ||
+			soname[1] != TJS_W('i') ||
+			soname[2] != TJS_W('b') ) {
+			soname = TJS_W("lib") + soname;
+		}
+	}
 	Holder = new tTVPPluginHolder(soname);
 	if( TVPCheckExistentLocalFile(Holder->GetLocalName()) ) {
 		Instance = Application->LoadLibrary( Holder->GetLocalName().AsStdString().c_str() );
@@ -398,7 +423,17 @@ bool TVPUnloadPlugin(const ttstr & name)
 	return false;
 }
 //---------------------------------------------------------------------------
-
+void TVPLoadStaticPluigins(void)
+{
+	// load each plugin
+    for(const auto* plugin : TVPStaticPlugins) {
+        if(plugin && plugin->name) {
+			TVPAddImportantLog(ttstr(TJS_W("(info) Auto Loading Static Plugin:")) + ttstr(plugin->name));
+			TVPLoadPlugin(plugin->name);
+		}
+	}
+}
+//---------------------------------------------------------------------------
 
 //---------------------------------------------------------------------------
 // some service functions for plugin

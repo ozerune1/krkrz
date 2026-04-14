@@ -23,8 +23,6 @@ C++ コンパイラ を使える状態にしておきます。
 ※Visual Studio 2022 以降は vcpkg があわせて導入されますが、
 自前環境を使う場合は競合してまうので入れない様にして下さい。
 
-また、アセンブリの処理用に nasm 2.10.09 が必要です。
-
 make を使いたい場合は、msys2 をインストールして基礎開発ツールを導入しておきます。
 
 ```bash
@@ -94,8 +92,8 @@ export BUILD_TYPE=Release
 #export BUILD_TYPE=Debug
 
 # cmake オプション指定
-# USE_SJIS  デフォルトをSJIS(MBSC) にする
-export CMAKEOPT="-DUSE_SJIS=ON"
+# KRKRZ_USE_SJIS  デフォルトをSJIS(MBSC) にする
+export CMAKEOPT="-DKRKRZ_USE_SJIS=ON"
 
 # cmake プロジェクト生成
 # この段階で vcpkg が処理されてライブラリが準備されます
@@ -118,11 +116,11 @@ INSTALL_PREFIX=install make install
 
 ビルド用の以下の特殊な CMake変数があります
 
-BUILD_WINVER    旧来のWindows版準拠で構築します（Windowsのデフォルト）
-BUILD_SDL       SDLバージョンで作成します（Windows以外のデフォルト）
-BUILD_LIB       ライブラリ版KRKRZを作成します
+KRKRZ_VARIANT=WIN    旧来のWindows版準拠で構築します
+KRKRZ_VARIANT=SDL    SDLバージョンで作成します（デフォルト）
+KRKRZ_VARIANT=LIB    ライブラリ版KRKRZを作成します
 
-BUILD_SDL / BUILD_LIB では、旧来の Windows版固有の機能が排除
+KRKRZ_VARIANT=SDL / LIB では、旧来の Windows版固有の機能が排除
 された GENERICバージョンの吉里吉里になります。
 
 GENERICバージョンあわせのプラグインをビルドする場合は、tp_stub.h を
@@ -155,6 +153,37 @@ OpenGL 機能動作時は以下のファイル構成が必要になります
     plugin64/ プラグインフォルダ 64bit
       libEGL.dll        OpenGL の egl用DLL
       libGLESv2.dll     OpenGL の GLES2用DLL
+
+### SIMDパリティテスト
+
+`tests/simd_parity_test.cpp` に画像処理SIMD（SSE2 / AVX2 / NEON）と
+C リファレンス実装の出力を byte 単位で比較する CTest テスト
+（`krkrz_simd_parity_test` / テスト名 `simd_parity`）が用意されています。
+
+このテストは `tvpgl.c` / `blend_function.cpp` / 各 `*_sse2.cpp` /
+`*_avx2.cpp` / `*_neon.cpp` / `detect_cpu.cpp` 等 SIMD コアのみを直接
+リンクするスタンドアロンターゲットで、SDL3 / OpenGL / vcpkg のランタイム
+依存はありません。`KRKRZ_BUILD_TESTS=ON`（デフォルト）かつターゲットアーキ
+テクチャが x86 系または ARM 系のときに有効化されます。
+
+```bash
+# Makefile 経由 (prebuild 済みであること)
+make test
+
+# cmake / ctest 直接実行
+cmake --build $(BUILD_PATH) --config Release --target krkrz_simd_parity_test
+ctest --test-dir $(BUILD_PATH) -C Release -R simd_parity --output-on-failure
+```
+
+期待される出力:
+
+- x86 (Windows / Linux / macOS): `[SSE2 vs C reference]` と
+  `[AVX2 vs C reference]` の 2 セクションが走り、それぞれ全項目 pass。
+- ARM / ARM64 (Linux / Android): `[NEON vs C reference]` セクションが走る。
+
+PsBlend ファミリは SSE2 側が 7bit 量子化のため harness 側で
+`tol_alpha=-1, tol_rgb=2`（ColorDodge5 のみ `tol_rgb=8`）の tolerance
+policy が適用されます。それ以外は byte-exact 比較です。
 
 ## デバッグ実行
 
@@ -198,12 +227,6 @@ launch.json
 
 # その他情報
 
-tvpsnd_ia32
-nasm 2.10.09 が必要です。
-
-tvpgl_ia32
-nasm 2.10.09 が必要です。
-
 自動生成ファイル
 吉里吉里Z本体にはいくつかの自動生成ファイルが存在します。
 自動生成ファイルは直接編集せず、生成元のファイルを編集します。
@@ -226,9 +249,6 @@ http://gnuwin32.sourceforge.net/packages/regex.htm
 
 visual/glgen/gengl.bat で以下のファイルが生成されます。
 tvpgl.c/tvpgl.h : maketab.c/tvpps.c
-
-visual/IA32/compile.bat で以下のファイルが生成されます。
-tvpgl_ia32_intf.c/tvpgl_ia32_intf.h : *.nas
 
 base/win32/makestub.bat で以下のファイルが生成されます。
 FuncStubs.cpp/FuncStubs.h : makestub.pl内で指定されたヘッダーファイル内のTJS_EXP_FUNC_DEF/TVP_GL_FUNC_PTR_EXTERN_DECLマクロで記述された関数

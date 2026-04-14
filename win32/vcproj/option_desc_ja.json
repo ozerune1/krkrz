@@ -699,6 +699,17 @@
 		"category":"CPU 機能",
 		"options":[
 			{
+				"caption":"SIMD 全般",
+				"description":"すべての SIMD 最適化を無効にして C リファレンス実装にフォールバックします。デバッグや問題の切り分けに使用してください。",
+				"name":"cpusimd",
+				"type":"select",
+				"user":true,
+				"values":[
+					{ "value":"yes", "desc":"使用可能であれば使用する", "default":true },
+					{ "value":"no", "desc":"すべての SIMD を無効にする" }
+				]
+			},
+			{
 				"caption":"MMX",
 				"description":"CPU 認識トラブルが起こったときに調整してください。",
 				"name":"cpummx",

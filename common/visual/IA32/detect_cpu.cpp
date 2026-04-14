@@ -13,31 +13,46 @@
 #include "tjsCommHead.h"
 #include "tvpgl_ia32_intf.h"
 
+/* このファイルは x86 / x86_64 専用 (cpuid を使う)。
+   sources.cmake では KRKRZ_TARGET_X86 のときだけ KRKRZ_SRC に追加されるが、
+   うっかり ARM ビルドに混入しても安全に no-op になるよう内部で gating する。 */
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
+
 #ifdef _MSC_VER
 #include <windows.h>
 #include <intrin.h>
 extern "C" unsigned __int64 __xgetbv(int);
 static bool __os_has_avx_support() {
 	// Check if the OS will save the YMM registers
-	unsigned long long xcrFeatureMask = __xgetbv(_XCR_XFEATURE_ENABLED_MASK);
-	return (xcrFeatureMask & 6) == 6;
+	__try {
+		unsigned long long xcrFeatureMask = __xgetbv(_XCR_XFEATURE_ENABLED_MASK);
+		return (xcrFeatureMask & 6) == 6;
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		return false;
+	}
 }
 #else
-// VC 以外は動作未確認
-static inline int __cpuid(int CPUInfo[4],int InfoType) {
-  int highest;
-  asm volatile("cpuid":"=a"(*CPUInfo),"=b"(*(CPUInfo+1)),
-               "=c"(*(CPUInfo+2)),"=d"(*(CPUInfo+3)):"0"(InfoType));
-  return highest;
+#include <cpuid.h>
+#include <x86intrin.h>
+static inline void krkrz_cpuid(int CPUInfo[4],int InfoType) {
+  __cpuid(InfoType, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
 }
-static inline int __cpuidex(int CPUInfo[4],int InfoType,int ECXValue) {
-  int highest;
-	asm volatile("xchg{l}\t{%%}ebx, %1\n\t"
-		"cpuid\n\t"
-		"xchg{l}\t{%%}ebx, %1\n\t"
-		: "=a" (CPUInfo[0]), "=r" (CPUInfo[1]), "=c" (CPUInfo[2]), "=d" (CPUInfo[3])
-		: "0" (InfoType), "2" (ECXValue));
-  return highest;
+static inline void krkrz_cpuidex(int CPUInfo[4],int InfoType,int ECXValue) {
+  __cpuid_count(InfoType, ECXValue, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
+}
+#undef __cpuid
+#define __cpuid(info, op)          krkrz_cpuid((info), (op))
+#define __cpuidex(info, op, ecxv)  krkrz_cpuidex((info), (op), (ecxv))
+/* AVX/AVX2 の OS-support 検査は GCC/Clang の組み込みで OS の YMM 保存ビットを
+   含めて判定してくれる (内部で xgetbv を呼ぶ)。__builtin_cpu_init() を 1 度
+   叩いてから __builtin_cpu_supports("avx") / "avx2" を使う。 */
+static bool __os_has_avx_support() {
+	__builtin_cpu_init();
+	return __builtin_cpu_supports("avx") != 0;
+}
+static bool __os_has_avx2_support() {
+	__builtin_cpu_init();
+	return __builtin_cpu_supports("avx2") != 0;
 }
 #endif
 
@@ -253,15 +268,19 @@ tjs_uint32 TVPCheckCPU()
 	// OS Check
 #ifdef _MSC_VER
 	if( flags & (TVP_CPU_HAS_AVX|TVP_CPU_HAS_AVX2) ) {
-		__try {
-			// YMMレジスタ(AVX)はWindowsなら7 SP1以降
-			if( !__os_has_avx_support() ) {
-				flags &= ~(TVP_CPU_HAS_AVX|TVP_CPU_HAS_AVX2);
-			}
-		} __except(EXCEPTION_EXECUTE_HANDLER) {
-			// exception had been ocured
+		// YMMレジスタ(AVX)はWindowsなら7 SP1以降
+		if( !__os_has_avx_support() ) {
 			flags &= ~(TVP_CPU_HAS_AVX|TVP_CPU_HAS_AVX2);
-		} 
+		}
+	}
+#else
+	/* GCC/Clang: __builtin_cpu_supports は OS の YMM 保存サポートも見て判定する。
+	   AVX フラグが立っているのに OS が未対応なら落とす。AVX2 も同様。 */
+	if( (flags & TVP_CPU_HAS_AVX) && !__os_has_avx_support() ) {
+		flags &= ~(TVP_CPU_HAS_AVX|TVP_CPU_HAS_AVX2);
+	}
+	if( (flags & TVP_CPU_HAS_AVX2) && !__os_has_avx2_support() ) {
+		flags &= ~TVP_CPU_HAS_AVX2;
 	}
 #endif
 
@@ -283,3 +302,5 @@ tjs_uint64 TVPGetTSCP( tjs_uint32 *aux ) {
 	}
 	return 0;
 }
+
+#endif /* x86 / x86_64 */

@@ -699,6 +699,17 @@
 		"category":"CPU functions",
 		"options":[
 			{
+				"caption":"SIMD (all)",
+				"description":"Disable all SIMD optimizations and fall back to C reference implementation. Use for debugging or isolating issues.",
+				"name":"cpusimd",
+				"type":"select",
+				"user":true,
+				"values":[
+					{ "value":"yes", "desc":"Use if available", "default":true },
+					{ "value":"no", "desc":"Disable all SIMD" }
+				]
+			},
+			{
 				"caption":"MMX",
 				"description":"Adjust this setting when CPU cannot be detected properly.",
 				"name":"cpummx",

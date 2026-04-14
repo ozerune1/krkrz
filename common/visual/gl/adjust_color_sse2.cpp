@@ -83,7 +83,7 @@ void TVPAdjustGamma_a_sse2_c(tjs_uint32 *dest, tjs_int len, tTVPGLGammaAdjustTem
 	sse2_adjust_gamma_a_func func(param);
 
 	// アライメント処理
-	tjs_int count = (tjs_int)((unsigned)dest & 0xF);
+	tjs_int count = (tjs_int)((uintptr_t)dest & 0xF);
 	if( count ) {
 		count = (16 - count)>>2;
 		count = count > len ? len : count;
@@ -159,8 +159,8 @@ void TVPAdjustGamma_a_sse2_c(tjs_uint32 *dest, tjs_int len, tTVPGLGammaAdjustTem
 #endif
 
 #else
-				__m128i mrcpi0 = _mm_set_epi32(TVPRecipTable256_16[ma0.m128i_u32[3]],TVPRecipTable256_16[ma0.m128i_u32[2]],
-						TVPRecipTable256_16[ma0.m128i_u32[1]],TVPRecipTable256_16[ma0.m128i_u32[0]]);
+				__m128i mrcpi0 = _mm_set_epi32(TVPRecipTable256_16[M128I_U32(ma0,3)],TVPRecipTable256_16[M128I_U32(ma0,2)],
+						TVPRecipTable256_16[M128I_U32(ma0,1)],TVPRecipTable256_16[M128I_U32(ma0,0)]);
 				__m128i mask;
 				mrcpi0 = _mm_packs_epi32( mrcpi0, mrcpi0 );		// 0 1 2 3 0 1 2 3
 #endif

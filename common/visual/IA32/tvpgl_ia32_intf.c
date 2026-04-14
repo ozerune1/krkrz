@@ -12,27 +12,16 @@
 #include "tvpgl.h"
 #include "tvpgl_ia32_intf.h"
 
-extern tjs_uint32 TVPCPUType;
-
+/*
+ * かつて TLG6 デコード用に NASM 製のアセンブリ実装(*_a / *_mmx_a / *_emmx_a /
+ * *_sse_a)を CPU 機能に応じて差し替えていたが、以下の理由で全廃した:
+ *  - 32bit 専用で 64bit ビルドでは元から無効化されていた (#ifndef TJS_64BIT_OS)
+ *  - 古い nasm でしかコンパイルできず、ツールチェイン依存が重かった
+ *  - MMX/EMMX 経路は現代の x86_64 では SSE2 ベースラインに対して実利が無い
+ * 現在は tvpgl.c の C リファレンス実装 (*_c) がそのまま使われる。
+ * 本関数は呼び出し側の互換のため空 stub として残してある。
+ */
 void TVPGL_IA32_Init()
 {
-#ifndef __GENERIC__	// GENERIC版でもMMX実装ほしいので今後検討
-#ifndef TJS_64BIT_OS
-if(TVPCPUType & TVP_CPU_HAS_MMX)
-	 TVPTLG6DecodeLine =  TVPTLG6DecodeLine_mmx_a;
-if(TVPCPUType & TVP_CPU_HAS_SSE && TVPCPUType & TVP_CPU_HAS_MMX && TVPCPUType & TVP_CPU_HAS_EMMX)
-	 TVPTLG6DecodeLine =  TVPTLG6DecodeLine_sse_a;
- TVPTLG6DecodeGolombValuesForFirst =  TVPTLG6DecodeGolombValuesForFirst_a;
- TVPTLG6DecodeGolombValues =  TVPTLG6DecodeGolombValues_a;
-if(TVPCPUType & TVP_CPU_HAS_MMX)
-	 TVPTLG6DecodeGolombValuesForFirst =  TVPTLG6DecodeGolombValuesForFirst_mmx_a;
-if(TVPCPUType & TVP_CPU_HAS_MMX)
-	 TVPTLG6DecodeGolombValues =  TVPTLG6DecodeGolombValues_mmx_a;
-if(TVPCPUType & TVP_CPU_HAS_EMMX && TVPCPUType & TVP_CPU_HAS_MMX)
-	 TVPTLG6DecodeGolombValuesForFirst =  TVPTLG6DecodeGolombValuesForFirst_emmx_a;
-if(TVPCPUType & TVP_CPU_HAS_EMMX && TVPCPUType & TVP_CPU_HAS_MMX)
-	 TVPTLG6DecodeGolombValues =  TVPTLG6DecodeGolombValues_emmx_a;
-#endif
-#endif
 }
 

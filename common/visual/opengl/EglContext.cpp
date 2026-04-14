@@ -213,52 +213,6 @@ tTVPEGLContext::Release()
 	return mRefCount;
 }
 
-// 最小構成での初期化を試す
-// OpenGL ES2.0 環境を試す、これで動かないとたぶんもう無理
-bool tTVPEGLContext::TryMinimumLevelInitialize() 
-{
-	EGLint displayAttributes[] = { EGL_PLATFORM_ANGLE_TYPE_ANGLE, EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE, EGL_NONE };
-	mDisplay = eglGetPlatformDisplayEXT( EGL_PLATFORM_ANGLE_ANGLE, mNativeDisplay, displayAttributes );
-	EGLint majorVersion, minorVersion;
-	if( eglInitialize( mDisplay, &majorVersion, &minorVersion ) == EGL_FALSE ) {
-		TVPAddLog( TJS_W( "Failed to call eglInitialize." ) );
-		CheckEGLErrorAndLog();
-		Destroy();
-		EGLint displayAttributes2[] = { EGL_PLATFORM_ANGLE_TYPE_ANGLE, EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE, EGL_NONE };
-		mDisplay = eglGetPlatformDisplayEXT( EGL_PLATFORM_ANGLE_ANGLE, mNativeDisplay, displayAttributes );
-		if( eglInitialize( mDisplay, &majorVersion, &minorVersion ) == EGL_FALSE ) {
-			Destroy();
-			return false;
-		}
-	}
-	const EGLint configAttributes[] = {
-		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-		EGL_RED_SIZE,       EGL_DONT_CARE,
-		EGL_GREEN_SIZE,     EGL_DONT_CARE,
-		EGL_BLUE_SIZE,      EGL_DONT_CARE,
-		EGL_ALPHA_SIZE,     EGL_DONT_CARE,
-		EGL_NONE
-	};
-	EGLint configCount;
-	EGLBoolean result = eglChooseConfig( mDisplay, configAttributes, &mConfig, 1, &configCount );
-	if( result == EGL_FALSE || ( configCount == 0 ) ) {
-		TVPAddLog( TJS_W( "Failed to call eglChooseConfig." ) );
-		CheckEGLErrorAndLog();
-		Destroy();
-		return false;
-	}
-	EGLint contextAttributes[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
-	mContext = eglCreateContext( mDisplay, mConfig, nullptr, contextAttributes );
-	if( !CheckEGLErrorAndLog() || mContext == EGL_NO_CONTEXT ) {
-		TVPAddLog( TJS_W( "Failed to call eglCreateContext." ) );
-		Destroy();
-		return false;
-	}
-	TVPOpenGLESVersion = 200;
-	GetConfigAttribute( mConfig );
-	return true;
-}
-
 static bool eglInited = false;
 
 bool tTVPEGLContext::Initialize() 
@@ -357,170 +311,55 @@ bool tTVPEGLContext::Initialize()
 
 	eglBindAPI( EGL_OPENGL_ES_API );
 
-#if 1
-	// D3D11 でも、ES3 が動かせない環境があるようなので、EGL_RENDERABLE_TYPE は指定せずに列挙する
-	const EGLint configAttributesAny[] = { EGL_RED_SIZE, EGL_DONT_CARE, EGL_GREEN_SIZE, EGL_DONT_CARE, EGL_BLUE_SIZE, EGL_DONT_CARE, EGL_ALPHA_SIZE, EGL_DONT_CARE, EGL_NONE };
-	EGLint configSize;
-	mConfig = nullptr;
-	if( eglChooseConfig( mDisplay, configAttributesAny, NULL, 0, &configSize ) != EGL_FALSE && configSize > 0 ) {
-		std::vector<EGLConfig> configs( configSize );
-		EGLint configCount;
-		EGLBoolean ret = eglChooseConfig( mDisplay, configAttributesAny, &( configs[0] ), configSize, &configCount );
-		if( ret != EGL_FALSE ) {
-			if( configCount == 1 ) {
-				// 1個しか見付からないのなら、それでもう確定
-				mConfig = configs[0];
-			}
-			EGLint r, g, b, a;
-			if( mConfig == nullptr ) {
-				// 最初にRGBA全て8のものを探す
-				for( EGLint i = 0; i < configCount; i++ ) {
-					EGLConfig config = configs[i];
-					eglGetConfigAttrib( mDisplay, config, EGL_RED_SIZE, &r );
-					eglGetConfigAttrib( mDisplay, config, EGL_GREEN_SIZE, &g );
-					eglGetConfigAttrib( mDisplay, config, EGL_BLUE_SIZE, &b );
-					eglGetConfigAttrib( mDisplay, config, EGL_ALPHA_SIZE, &a );
-					if( r == 8 && g == 8 && b == 8 && a == 8 ) {
-						mConfig = config;
-						break;
-					}
-				}
-			}
-			if( mConfig == nullptr ) {
-				// 見付からなかったようなので、Alphaは気にしないことにして探す
-				for( EGLint i = 0; i < configCount; i++ ) {
-					EGLConfig config = configs[i];
-					eglGetConfigAttrib( mDisplay, config, EGL_RED_SIZE, &r );
-					eglGetConfigAttrib( mDisplay, config, EGL_GREEN_SIZE, &g );
-					eglGetConfigAttrib( mDisplay, config, EGL_BLUE_SIZE, &b );
-					eglGetConfigAttrib( mDisplay, config, EGL_ALPHA_SIZE, &a );
-					if( r == 8 && g == 8 && b == 8 ) {
-						mConfig = config;
-						break;
-					}
-				}
-			}
-			if( mConfig == nullptr ) {
-				// RGB888 がないのなら、もう気にせず最初のやつに決定してしまう
-				mConfig = configs[0];
-			}
-			// D3D11 でも ES3.0 が使用出来ない環境があるので、バージョンを取得してから試す
-			EGLint eglver = 0;
-			eglGetConfigAttrib( mDisplay, mConfig, EGL_RENDERABLE_TYPE, &eglver );
-			if( esClientVersion > 2 ){
-				if( eglver & EGL_OPENGL_ES3_BIT ) {
-					esClientVersion = 3;
-					TVPOpenGLESVersion = 300;
-				} else {
-					esClientVersion = 2;
-					TVPOpenGLESVersion = 200;
-				}
-			}
-			bool successCreateContext = true;
-			EGLint contextAttributes[] = {
-				EGL_CONTEXT_CLIENT_VERSION, esClientVersion,
-				EGL_CONTEXT_MINOR_VERSION, 0,
-				EGL_NONE };
-			mContext = eglCreateContext( mDisplay, mConfig, nullptr, contextAttributes );
-			if( mContext == EGL_NO_CONTEXT ) { TVPAddLog( TJS_W( "eglCreateContext returned EGL_NO_CONTEXT." ) ); }
-			if( !CheckEGLErrorAndLog() ) {
-				// 選択候補で失敗。全てのパターンで初期化を試す
-				TVPAddLog( TJS_W( "Failed to call eglCreateContext. Try all patterns." ) );
-				successCreateContext = false;
-				if( mContext != EGL_NO_CONTEXT ) {
-					eglDestroyContext( mDisplay, mContext );
-					mContext = EGL_NO_CONTEXT;
-				}
-				for( EGLint i = 0; i < configCount; i++ ) {
-					mConfig = configs[i];
-					eglGetConfigAttrib( mDisplay, mConfig, EGL_RENDERABLE_TYPE, &eglver );
-					if( esClientVersion > 2 ) {
-						if( eglver & EGL_OPENGL_ES3_BIT ) {
-							esClientVersion = 3;
-							TVPOpenGLESVersion = 300;
-						} else {
-							esClientVersion = 2;
-							TVPOpenGLESVersion = 200;
-						}
-					}
-					EGLint contextAttributes2[] = { EGL_CONTEXT_CLIENT_VERSION, esClientVersion, EGL_NONE };
-					mContext = eglCreateContext( mDisplay, mConfig, nullptr, contextAttributes2 );
-					if( mContext == EGL_NO_CONTEXT ) { TVPAddLog( TJS_W( "eglCreateContext returned EGL_NO_CONTEXT." ) ); }
-					if( !CheckEGLErrorAndLog() ) {
-						if( mContext != EGL_NO_CONTEXT ) {
-							eglDestroyContext( mDisplay, mContext );
-							mContext = EGL_NO_CONTEXT;
-						}
-					} else {
-						successCreateContext = true;
-						break;
-					}
-				}
-			}
-			if( successCreateContext ) {
-				GetConfigAttribute( mConfig );
-			} else {
-				// 全パターン失敗。
-				TVPAddLog( TJS_W( "Failed to call eglCreateContext." ) );
-				Destroy();
-				esClientVersion = 2;
-				// 最小構成を試してみる
-				if( !TryMinimumLevelInitialize() ) {
-					TVPAddLog( TJS_W( "Failed to initialize ANGLE. Cannot run on this device." ) );
-					Destroy();
-					return false;
-				}
-			}
-		} else {
-			// 失敗。起動できない
-			TVPAddLog( TJS_W( "Failed to call eglChooseConfig." ) );
-			CheckEGLErrorAndLog();
-			Destroy();
-			return false;
-		}
-	} else {
-		// 1個も見付からない時は、失敗。起動できない
+	// RGBA8888 + Stencil 8bit を最低ラインとして要求する。
+	// これを満たさない環境ではそのままエラーで起動失敗とする。
+	const EGLint configAttributes[] = {
+		EGL_RED_SIZE,     8,
+		EGL_GREEN_SIZE,   8,
+		EGL_BLUE_SIZE,    8,
+		EGL_ALPHA_SIZE,   8,
+		EGL_STENCIL_SIZE, 8,
+		EGL_NONE
+	};
+	EGLint configSize = 0;
+	if( eglChooseConfig( mDisplay, configAttributes, NULL, 0, &configSize ) == EGL_FALSE || configSize <= 0 ) {
+		TVPAddLog( TJS_W( "Failed to call eglChooseConfig (RGBA8888 + Stencil8 not available)." ) );
+		CheckEGLErrorAndLog();
+		Destroy();
+		return false;
+	}
+	std::vector<EGLConfig> configs( configSize );
+	EGLint configCount = 0;
+	if( eglChooseConfig( mDisplay, configAttributes, &configs[0], configSize, &configCount ) == EGL_FALSE || configCount <= 0 ) {
 		TVPAddLog( TJS_W( "Failed to call eglChooseConfig." ) );
 		CheckEGLErrorAndLog();
 		Destroy();
 		return false;
 	}
-#else
-	const EGLint configAttributes[] = {
-		EGL_RED_SIZE,       8,
-		EGL_GREEN_SIZE,     8,
-		EGL_BLUE_SIZE,      8,
-		EGL_ALPHA_SIZE,     8,
-		EGL_DEPTH_SIZE,     EGL_DONT_CARE,
-		EGL_STENCIL_SIZE,   EGL_DONT_CARE,
-		EGL_SAMPLE_BUFFERS, mMultisample ? 1 : 0,
-		EGL_NONE
-	};
-	EGLint configCount;
-	EGLBoolean result = eglChooseConfig( mDisplay, configAttributes, &mConfig, 1, &configCount );
-	if( result == EGL_FALSE || (configCount == 0) ) {
-		TVPAddLog( TJS_W( "Failed to call eglChooseConfig. try EGL_DONT_CARE." ) );
-		const EGLint configAttributes2[] = {
-			EGL_RED_SIZE,       EGL_DONT_CARE,
-			EGL_GREEN_SIZE,     EGL_DONT_CARE,
-			EGL_BLUE_SIZE,      EGL_DONT_CARE,
-			EGL_ALPHA_SIZE,     EGL_DONT_CARE,
-			EGL_DEPTH_SIZE,     EGL_DONT_CARE,
-			EGL_STENCIL_SIZE,   EGL_DONT_CARE,
-			EGL_NONE
-		};
-		EGLBoolean result = eglChooseConfig( mDisplay, configAttributes, &mConfig, 1, &configCount );
-		if( result == EGL_FALSE || ( configCount == 0 ) ) {
-			TVPAddLog( TJS_W( "Failed to call eglChooseConfig." ) );
-			CheckEGLErrorAndLog();
-			Destroy();
-			return false;
+
+	// eglChooseConfig は要求値以上のチャネルを持つ config を返し得るので、
+	// ぴったり R=G=B=A=8 のものを選ぶ。
+	mConfig = nullptr;
+	for( EGLint i = 0; i < configCount; i++ ) {
+		EGLint r = 0, g = 0, b = 0, a = 0;
+		eglGetConfigAttrib( mDisplay, configs[i], EGL_RED_SIZE,   &r );
+		eglGetConfigAttrib( mDisplay, configs[i], EGL_GREEN_SIZE, &g );
+		eglGetConfigAttrib( mDisplay, configs[i], EGL_BLUE_SIZE,  &b );
+		eglGetConfigAttrib( mDisplay, configs[i], EGL_ALPHA_SIZE, &a );
+		if( r == 8 && g == 8 && b == 8 && a == 8 ) {
+			mConfig = configs[i];
+			break;
 		}
 	}
-	GetConfigAttribute( mConfig );
+	if( mConfig == nullptr ) {
+		TVPAddLog( TJS_W( "No EGL config with exact RGBA8888 + Stencil8 found." ) );
+		Destroy();
+		return false;
+	}
+
+	// D3D11 でも ES3.0 が使用出来ない環境があるので、選択した config の RENDERABLE_TYPE で決める
 	EGLint eglver = 0;
 	eglGetConfigAttrib( mDisplay, mConfig, EGL_RENDERABLE_TYPE, &eglver );
-
 	if( esClientVersion > 2 ) {
 		if( eglver & EGL_OPENGL_ES3_BIT ) {
 			esClientVersion = 3;
@@ -530,50 +369,23 @@ bool tTVPEGLContext::Initialize()
 			TVPOpenGLESVersion = 200;
 		}
 	}
+
 	EGLint contextAttributes[] = {
 		EGL_CONTEXT_CLIENT_VERSION, esClientVersion,
-		EGL_CONTEXT_MINOR_VERSION, 0,
+		EGL_CONTEXT_MINOR_VERSION,  0,
 		EGL_NONE };
 	mContext = eglCreateContext( mDisplay, mConfig, nullptr, contextAttributes );
-	if( mContext == EGL_NO_CONTEXT ) { TVPAddLog( TJS_W( "eglCreateContext returned EGL_NO_CONTEXT." ) ); }
-	if( !CheckEGLErrorAndLog() ) {
-		TVPAddLog( TJS_W( "Failed to call eglCreateContext. Try eglChooseConfig again." ) );
+	if( mContext == EGL_NO_CONTEXT || !CheckEGLErrorAndLog() ) {
+		TVPAddLog( TJS_W( "Failed to call eglCreateContext." ) );
 		if( mContext != EGL_NO_CONTEXT ) {
 			eglDestroyContext( mDisplay, mContext );
 			mContext = EGL_NO_CONTEXT;
 		}
-
-		const EGLint configAttributes2[] = {
-			EGL_RED_SIZE,       EGL_DONT_CARE,
-			EGL_GREEN_SIZE,     EGL_DONT_CARE,
-			EGL_BLUE_SIZE,      EGL_DONT_CARE,
-			EGL_ALPHA_SIZE,     EGL_DONT_CARE,
-			EGL_DEPTH_SIZE,     EGL_DONT_CARE,
-			EGL_STENCIL_SIZE,   EGL_DONT_CARE,
-			EGL_NONE
-		};
-		EGLBoolean result = eglChooseConfig( mDisplay, configAttributes, &mConfig, 1, &configCount );
-		if( result == EGL_FALSE || ( configCount == 0 ) ) {
-			TVPAddLog( TJS_W( "Failed to call eglChooseConfig." ) );
-			CheckEGLErrorAndLog();
-			Destroy();
-			return false;
-		}
-		mContext = eglCreateContext( mDisplay, mConfig, nullptr, contextAttributes );
-		if( mContext == EGL_NO_CONTEXT ) { TVPAddLog( TJS_W( "eglCreateContext returned EGL_NO_CONTEXT." ) ); }
-		if( !CheckEGLErrorAndLog() ) {
-			TVPAddLog( TJS_W( "Failed to call eglCreateContext." ) );
-			Destroy();
-			esClientVersion = 2;
-			if( !TryMinimumLevelInitialize() ) {
-				TVPAddLog( TJS_W( "Failed to initialize ANGLE. Cannot run on this device." ) );
-				Destroy();
-				return false;
-			}
-		}
-		GetConfigAttribute( mConfig );
+		Destroy();
+		return false;
 	}
-#endif
+	GetConfigAttribute( mConfig );
+
 	TVPAddLog( ttstr( TJS_W( "(info) Run on OpenGL ES" ) ) + to_tjs_string( esClientVersion ) + ttstr( TJS_W( ".0 (ANGLE)" ) ) );
 
 	EGLint surfaceAttributes[] = { EGL_NONE };

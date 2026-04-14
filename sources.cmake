@@ -10,8 +10,9 @@ common/msg
 common/utils
 common/visual
 common/visual/gl
+common/visual/IA32
 common/visual/opengl
-common/glad/include 
+common/glad/include
 external
 )
 
@@ -94,7 +95,6 @@ common/sound/PhaseVocoderFilter.cpp
 common/sound/RealFFT.cpp
 common/sound/SoundBufferBaseIntf.cpp
 common/sound/SoundBufferBaseImpl.cpp
-common/sound/WaveFormatConverter.cpp
 common/sound/WaveIntf.cpp
 common/sound/WaveLoopManager.cpp
 common/sound/WaveSegmentQueue.cpp
@@ -140,6 +140,7 @@ common/visual/SaveTLG5.cpp
 common/visual/SaveTLG6.cpp
 common/visual/TransIntf.cpp
 common/visual/tvpgl.c
+common/visual/cpu_detect.cpp
 common/visual/VideoOvlIntf.cpp
 common/visual/WindowIntf.cpp
 common/visual/KeyRepeat.cpp
@@ -149,7 +150,7 @@ common/visual/gl/WeightFunctor.cpp
 common/base/FuncStubs.cpp
 )
 
-if (USE_OPENGL)
+if (KRKRZ_USE_OPENGL)
 
 set( KRKRZ_SRC_OPENGL
 common/visual/opengl/OGLDrawDevice.cpp
@@ -235,17 +236,32 @@ win32/vcproj/tvpwin32.rc
 win32/vcproj/dpi.manifest
 )
 
-set( KRKRZ_SRC_WIN32_SSE
-win32/environ/DetectCPU.cpp
+# ----------------------------------------------------------------------------
+# 画像処理 SIMD ソース群
+#
+# 以下は CPU アーキテクチャごとに自動取り込みされる:
+#  - x86 / x86_64 系       → KRKRZ_SRC_X86_GRAPHICS_SIMD
+#  - arm / arm64 系        → KRKRZ_SRC_ARM_GRAPHICS_SIMD
+#
+# WIN32 専用の Win32 API 依存ファイル(CPU検出 / サウンド SSE)は
+# KRKRZ_SRC_WIN32_SSE に残し、従来通り if(WIN32) でのみ取り込む。
+#
+# 補足: AVX2 / SSSE3 を使うソースには非 MSVC 向けの per-file フラグが必要。
+# その設定は本ファイル末尾で set_source_files_properties() している。
+# ----------------------------------------------------------------------------
+
+# x86/x86_64 共通の画像処理 SIMD (cross-platform)
+set( KRKRZ_SRC_X86_GRAPHICS_SIMD
 common/visual/gl/ResampleImageAVX2.cpp
 common/visual/gl/ResampleImageSSE2.cpp
 common/visual/gl/x86simdutil.cpp
 common/visual/gl/x86simdutilAVX2.cpp
-common/visual/gl/blend_function_sse2.cpp	
+common/visual/gl/blend_function_sse2.cpp
 common/visual/gl/blend_function_avx2.cpp
 common/visual/gl/adjust_color_sse2.cpp
-common/visual/gl/blend_function_sse2.cpp
 common/visual/gl/boxblur_sse2.cpp
+common/visual/gl/colormap_avx2.cpp
+common/visual/gl/colorfill_avx2.cpp
 common/visual/gl/colorfill_sse2.cpp
 common/visual/gl/colormap_sse2.cpp
 common/visual/gl/pixelformat_sse2.cpp
@@ -253,34 +269,104 @@ common/visual/gl/tlg_sse2.cpp
 common/visual/gl/univtrans_sse2.cpp
 common/visual/IA32/detect_cpu.cpp
 common/visual/IA32/tvpgl_ia32_intf.c
+)
+
+# ARM/ARM64 用の画像処理 SIMD
+set( KRKRZ_SRC_ARM_GRAPHICS_SIMD
+common/visual/gl/blend_function_neon.cpp
+common/visual/gl/adjust_color_neon.cpp
+common/visual/gl/colormap_neon.cpp
+common/visual/gl/colorfill_neon.cpp
+common/visual/gl/pixelformat_neon.cpp
+)
+
+# Win32 API 固有の補助ファイル。
+# per-CPU 親和性スレッドで全コアの features をマスクする Win32 専用の
+# 追加検出 + ロギング (Win32 API 依存、本質的に Windows 専用)。
+# sound 系の x86 SSE は Phase SB0 で portable 化して KRKRZ_SRC_X86_SOUND_SIMD
+# に移動済み。
+set( KRKRZ_SRC_WIN32_SSE
+win32/environ/DetectCPU.cpp
+)
+
+# ----------------------------------------------------------------------------
+# sound 系 SIMD (cross-platform)。
+# 画像処理 SIMD の KRKRZ_SRC_X86_GRAPHICS_SIMD / KRKRZ_SRC_ARM_GRAPHICS_SIMD
+# と同じ構造。Linux/macOS x86_64 でも KRKRZ_TARGET_X86 経由で自動 wired。
+# sound NEON は Phase SB2 で実装予定 (現状空 list)。
+# ----------------------------------------------------------------------------
+set( KRKRZ_SRC_X86_SOUND_SIMD
 common/sound/MathAlgorithms_SSE.cpp
 common/sound/RealFFT_SSE.cpp
-common/sound/WaveFormatConverter_SSE.cpp
-common/sound/xmmlib.cpp 
+common/sound/xmmlib.cpp
 )
 
-set( KRKRZ_SRC_WIN32_NAS
-common/visual/IA32/tlg6_chroma.nas
-common/visual/IA32/tlg6_golomb.nas
+set( KRKRZ_SRC_ARM_SOUND_SIMD
+common/sound/MathAlgorithms_NEON.cpp
+common/sound/RealFFT_NEON.cpp
 )
 
-if (USE_NEON)
+# ----------------------------------------------------------------------------
+# アーキテクチャ自動判定
+# ----------------------------------------------------------------------------
+string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _krkrz_arch_lc)
+if (_krkrz_arch_lc MATCHES "^(x86_64|amd64|x64|i[3-6]86|x86)$")
+    set(KRKRZ_TARGET_X86 TRUE)
+endif()
+if (_krkrz_arch_lc MATCHES "^(aarch64|arm64|armv[0-9]|arm)")
+    set(KRKRZ_TARGET_ARM TRUE)
+endif()
+unset(_krkrz_arch_lc)
 
-    list(APPEND KRKRZ_SRC
-    common/visual/gl/blend_function_neon.cpp
-    )
-
+# 画像処理 + sound SIMD を共通ソースリストに追加 (OS 非依存、アーキテクチャに応じて)
+if (KRKRZ_TARGET_X86)
+    list(APPEND KRKRZ_SRC ${KRKRZ_SRC_X86_GRAPHICS_SIMD})
+    list(APPEND KRKRZ_SRC ${KRKRZ_SRC_X86_SOUND_SIMD})
+endif()
+if (KRKRZ_TARGET_ARM)
+    list(APPEND KRKRZ_SRC ${KRKRZ_SRC_ARM_GRAPHICS_SIMD})
+    list(APPEND KRKRZ_SRC ${KRKRZ_SRC_ARM_SOUND_SIMD})
 endif()
 
-# エラーになったので一時除外
-if ( FALSE AND (ANDROID_ABI STREQUAL x86 OR ANDROID_ABI STREQUAL x86_64) )
-	list(APPEND KRKRZ_SRC
-	common/sound/MathAlgorithms_SSE.cpp
-	common/sound/RealFFT_SSE.cpp
-	common/sound/WaveFormatConverter_SSE.cpp
-	common/sound/xmmlib.cpp 
-	)
+# ----------------------------------------------------------------------------
+# 拡張命令 per-file コンパイルフラグ
+#  - MSVC は SSE2/SSSE3 の intrinsics を /arch なしでも受け付けるが、AVX2 は
+#    /arch:AVX2 が必要。GCC/Clang は SSSE3 / AVX2 ともに per-file の -m フラグ
+#    が必要。runtime dispatch で実際に呼ばれる CPU は事前にチェックされるので、
+#    ファイル単位で命令を有効化しても安全。
+# ----------------------------------------------------------------------------
+set(_krkrz_avx2_files
+    common/visual/gl/blend_function_avx2.cpp
+    common/visual/gl/ResampleImageAVX2.cpp
+    common/visual/gl/x86simdutilAVX2.cpp
+    common/visual/gl/colormap_avx2.cpp
+    common/visual/gl/colorfill_avx2.cpp
+)
+if (MSVC)
+    set(_krkrz_avx2_flags "/arch:AVX2")
+    set(_krkrz_ssse3_flags "")
+else()
+    set(_krkrz_avx2_flags "-mavx2;-mfma")
+    set(_krkrz_ssse3_flags "-mssse3")
 endif()
+
+if (KRKRZ_TARGET_X86)
+    foreach(_f ${_krkrz_avx2_files})
+        set_source_files_properties(${_f} PROPERTIES COMPILE_OPTIONS "${_krkrz_avx2_flags}")
+    endforeach()
+    if (_krkrz_ssse3_flags)
+        # blend_function_sse2.cpp / pixelformat_sse2.cpp には SSSE3 runtime-dispatch 経路が含まれている
+        set_source_files_properties(
+            common/visual/gl/blend_function_sse2.cpp
+            common/visual/gl/pixelformat_sse2.cpp
+            PROPERTIES COMPILE_OPTIONS "${_krkrz_ssse3_flags}")
+    endif()
+endif()
+
+unset(_krkrz_avx2_files)
+unset(_krkrz_avx2_flags)
+unset(_krkrz_ssse3_flags)
+
 
 set( KRKRZ_INC_GENERIC
 generic/base
@@ -328,10 +414,6 @@ list(TRANSFORM KRKRZ_PUBLIC_HEADER PREPEND ${CMAKE_CURRENT_SOURCE_DIR}/)
 if (WIN32)
 	list(APPEND KRKRZ_INC_GENERIC ${KRKRZ_INC_WIN32_COMMON})
 	list(APPEND KRKRZ_SRC_GENERIC ${KRKRZ_SRC_WIN32_SSE})
-	if (NOT WIN64)
-		list(APPEND KRKRZ_SRC_GENERIC ${KRKRZ_SRC_WIN32_NAS})
-		list(APPEND KRKRZ_SRC_WIN32 ${KRKRZ_SRC_WIN32_NAS})
-	endif()
 endif()
 
 set(KRKRZ_SRC_SDL3
@@ -366,31 +448,22 @@ set(KRKRZ_LIB_SDL3
 	SDL3::SDL3
 )
 
-if(USE_MINIAUDIO)
-	list(APPEND KRKRZ_SRC_WIN32
-		common/sound/AudioStream.cpp
-	)
-	list(APPEND KRKRZ_SRC_SDL3
-		common/sound/AudioStream.cpp
-		sdl3/sound/audio.cpp
-	)
-	if (BUILD_SDL)
-		list(APPEND KRKRZ_DEFINES
-			# miniaudio dont use device io
-			MA_NO_DEVICE_IO
-		)
-	endif()
-else()
-	list(APPEND KRKRZ_SRC_WIN32
-		win32/XAudio2AudioStream.cpp
-	)
-	list(APPEND KRKRZ_SRC_SDL3
-		sdl3/sound/AudioStream.cpp
+list(APPEND KRKRZ_SRC_WIN32
+	common/sound/AudioStream.cpp
+)
+list(APPEND KRKRZ_SRC_SDL3
+	common/sound/AudioStream.cpp
+	sdl3/sound/audio.cpp
+)
+if (KRKRZ_VARIANT STREQUAL "SDL")
+	list(APPEND KRKRZ_DEFINES
+		# miniaudio dont use device io
+		MA_NO_DEVICE_IO
 	)
 endif()
 
 
-if (SDL3_SPLASHWINDOW)
+if (KRKRZ_SDL3_SPLASHWINDOW)
 	list(APPEND KRKRZ_SRC_SDL3
 		sdl3/environ/app_splash.cpp
 	)

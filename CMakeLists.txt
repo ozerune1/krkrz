@@ -17,23 +17,11 @@ project(${PROJECT_NAME} VERSION ${PROJECT_VERSION})
 
 option(MASTER "build master version" OFF)
 
-option(USE_NEON "use neon" OFF)
-option(USE_SJIS "use sjis" OFF)
-option(USE_OPENGL "use opengl" ON)
-option(USE_MINIAUDIO "use miniaudio for audio mixing" ON)
-
-option(BUILD_WINVER "build windows original version" OFF)
-option(BUILD_LIB "build library version" OFF)
-if(BUILD_WINVER)
-    set(BUILD_SDL_DEFAULT OFF)
-else()
-    set(BUILD_SDL_DEFAULT ON)
-endif()
-option(BUILD_SDL "build sdl version" ${BUILD_SDL_DEFAULT})
-
-# for SDL
-option(SDL3_FETCH "fetch SDL3 source" ON)
-option(SDL3_SPLASHWINDOW "use splash window" OFF)
+option(KRKRZ_USE_SJIS "use sjis" OFF)
+option(KRKRZ_USE_OPENGL "use opengl" ON)
+set(KRKRZ_VARIANT "SDL" CACHE STRING "Build variant: SDL (default), WIN (Windows native), LIB (static library)")
+option(KRKRZ_BUILD_TESTS "build SIMD parity tests" ON)
+option(KRKRZ_SDL3_SPLASHWINDOW "use splash window" OFF)
 
 if(WIN32 AND (CMAKE_SIZEOF_VOID_P EQUAL 8))
 set(WIN64 1)
@@ -55,13 +43,19 @@ set(LIBNAME lib${PROJECT_NAME})
 set(PLUGIN_DIR "plugin")
 endif()
 
+if(APPLE)
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+set(KRKRZ_APPLE_BUNDLE_RUNTIME_DIR "${EXENAME}.app")
+else()
+set(KRKRZ_APPLE_BUNDLE_RUNTIME_DIR "${EXENAME}.app/Contents/MacOS")
+endif()
+set(KRKRZ_PLUGIN_INSTALL_DIR "${KRKRZ_APPLE_BUNDLE_RUNTIME_DIR}")
+else()
+set(KRKRZ_PLUGIN_INSTALL_DIR "${PLUGIN_DIR}")
+endif()
+
 if (WIN32)
 set(CMAKE_RC_FLAGS "")
-# nasm setup
-set( CMAKE_ASM_NASM_FLAGS "-O1 -safeseh -Xvc -fwin32 -DWIN32 -I${CMAKE_CURRENT_SOURCE_DIR} -I${CMAKE_CURRENT_SOURCE_DIR}/visual/IA32/" )
-set( CMAKE_ASM_NASM_SOURCE_FILE_EXTENSIONS "asm;nasm;nas")
-find_program(CMAKE_ASM_NASM_COMPILER NAMES nasm)
-enable_language(ASM_NASM)
 endif()
 
 set(KRKRZ_DEFINES
@@ -85,7 +79,7 @@ MASTER
 )
 endif()
 
-if (USE_SJIS)
+if (KRKRZ_USE_SJIS)
 list(APPEND KRKRZ_DEFINES
 # 標準をSJISにするかどうか
 TVP_TEXT_READ_ANSI_MBCS
@@ -146,6 +140,7 @@ endif()
 # StaticPlugins.cpp 生成用の変数を初期化
 set(STATIC_PLUGIN_EXTERNS "")
 set(STATIC_PLUGIN_ATSTARTS "")
+set(KRKRZ_DYNAMIC_PLUGINS "")
 
 foreach(PLUGIN ${TVP_PLUGINS})
     if(${PLUGIN} IN_LIST TVP_PLUGINS_STATIC)
@@ -177,19 +172,29 @@ foreach(PLUGIN ${TVP_PLUGINS})
         string(APPEND STATIC_PLUGIN_ATSTARTS "static tTVPAtStart AtStart_${PLUGIN}(TVP_ATSTART_PRI_PREPARE, [](){ krkrz_plugin_${PLUGIN}(); });\n")
     else()
         message(STATUS "dynamic plugin: ${PLUGIN}")
+		list(APPEND KRKRZ_DYNAMIC_PLUGINS ${PLUGIN})
+		if(NOT APPLE)
         install(TARGETS ${PLUGIN} 
-            LIBRARY DESTINATION ${PLUGIN_DIR}
-            RUNTIME DESTINATION ${PLUGIN_DIR}
+			LIBRARY DESTINATION ${KRKRZ_PLUGIN_INSTALL_DIR}
+			RUNTIME DESTINATION ${KRKRZ_PLUGIN_INSTALL_DIR}
         )
+		endif()
     endif()
 endforeach()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS" AND KRKRZ_DYNAMIC_PLUGINS)
+message(WARNING "iOS restricts runtime loading of bundled dynamic libraries; prefer TVP_PLUGINS_STATIC for app plugins")
+endif()
+
 # Static Pluginが存在する場合のみ StaticPlugins.cpp を生成してソースに追加
 if(STATIC_PLUGIN_EXTERNS)
-    set(STATIC_PLUGINS_CPP_CONTENT "#include \"tjsCommHead.h\"\n#include \"SysInitIntf.h\"\n${STATIC_PLUGIN_EXTERNS}${STATIC_PLUGIN_ATSTARTS}")
+	set(STATIC_PLUGINS_CPP_CONTENT "#include \"tjsCommHead.h\"\n#include \"SysInitIntf.h\"\n${STATIC_PLUGIN_EXTERNS}${STATIC_PLUGIN_ATSTARTS}")
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/StaticPlugins.cpp" "${STATIC_PLUGINS_CPP_CONTENT}")
     list(APPEND KRKRZ_SRC_ADD "${CMAKE_CURRENT_BINARY_DIR}/StaticPlugins.cpp")
-    message(STATUS "Generated StaticPlugins.cpp with static plugins")
+	message(STATUS "Generated StaticPlugins.cpp with static plugins")
+	# 共通バインド部
+	list(APPEND KRKRZ_INC ${TPSTUB_DIR})
+	list(APPEND KRKRZ_SRC_ADD ${TPSTUB_DIR}/tp_stub.cpp)
 endif()
 
 # ----------------------------------------------------
@@ -244,7 +249,7 @@ endif()
 find_path(PICOJSON_INCLUDE_DIRS "picojson/picojson.h")
 find_package(fmt CONFIG REQUIRED)
 
-if (BUILD_LIB)
+if (KRKRZ_VARIANT STREQUAL "LIB")
 
 # ----------------------------------------------------
 # krkrz generic library
@@ -303,16 +308,21 @@ target_link_libraries( ${LIBNAME} PUBLIC
 	${KRKRZ_LIB_ADD}
 )
 
-elseif(BUILD_SDL) # !BUILD_LIB
+elseif(KRKRZ_VARIANT STREQUAL "SDL") # !LIB
 
 # ----------------------------------------------------
 # krkrz SDL version
 # ----------------------------------------------------
 
+list(APPEND KRKRZ_DEFINES
+# ファイル名をノーマライズしない
+#TVP_NO_NORMALIZE_PATH
+)
+
 # ----------------------------------------------------
 # SDL3
 
-if (SDL3_FETCH)
+if (NOT TARGET SDL3::SDL3)
 	include(FetchContent)
 	FetchContent_Declare(
 		SDL3
@@ -330,17 +340,13 @@ if (SDL3_FETCH)
 	
 	FetchContent_MakeAvailable(SDL3)
 
-	if (SDL3_SPLASHWINDOW)
+	if (KRKRZ_SDL3_SPLASHWINDOW)
 	FetchContent_MakeAvailable(SDL3_image)
 	endif()
 
 endif()
 
-if(NOT TARGET SDL3::SDL3)
-	find_package(SDL3 REQUIRED CONFIG)
-endif()
-
-if (SDL3_SPLASHWINDOW)
+if (KRKRZ_SDL3_SPLASHWINDOW)
 if (NOT TARGET SDL3_image::SDL3_image)
 	find_package(SDL3_image REQUIRED CONFIG)
 endif()
@@ -350,11 +356,7 @@ endif()
 # movieplayer
 
 if(NOT TARGET movieplayer)
-if(USE_MINIAUDIO)
-	option(MOVIEPLAYER_EXTERNAL_MINIAUDIO "use external miniaudio" ON)
-else()
-	option(MOVIEPLAYER_EXTERNAL_SDL "use external sdl" ON)
-endif()
+option(MOVIEPLAYER_EXTERNAL_MINIAUDIO "use external miniaudio" ON)
 add_subdirectory(external/movie-player)
 endif()
 
@@ -407,7 +409,36 @@ set(REGISTRY_SOURCE_CONTENT "/* Auto-generated resource registry source */
 ")
 set(REGISTRY_ENTRIES "")
 set(REGISTRY_COUNT 0)
-set(OBJFORMAT elf64-x86-64 CACHE STRING "Object file format for objcopy")
+# objcopy の BFD target を CPU アーキに合わせて選択する
+# (-I binary で取り込んだ生データを ELF オブジェクトに変換する際の出力フォーマット)
+# CACHE にしてしまうと configure をまたいでアーキの異なる値が焼き付いたまま残り
+# (-O elf64-x86-64 なのに -B aarch64 のような食い違いが出る) ため、毎 configure で
+# KRKRZ_TARGET_ARM / CMAKE_SIZEOF_VOID_P を見て再計算する。明示的に上書きしたい場合は
+# -DOBJFORMAT=... / -DOBJARCH=... を指定する。
+if (KRKRZ_TARGET_ARM)
+    if (CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(OBJFORMAT_DEFAULT elf64-littleaarch64)
+        set(OBJARCH_DEFAULT aarch64)
+    else()
+        set(OBJFORMAT_DEFAULT elf32-littlearm)
+        set(OBJARCH_DEFAULT arm)
+    endif()
+else()
+    if (CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(OBJFORMAT_DEFAULT elf64-x86-64)
+        set(OBJARCH_DEFAULT i386:x86-64)
+    else()
+        set(OBJFORMAT_DEFAULT elf32-i386)
+        set(OBJARCH_DEFAULT i386)
+    endif()
+endif()
+if (NOT DEFINED OBJFORMAT)
+    set(OBJFORMAT ${OBJFORMAT_DEFAULT})
+endif()
+if (NOT DEFINED OBJARCH)
+    set(OBJARCH ${OBJARCH_DEFAULT})
+endif()
+message(STATUS "Resource objcopy: -O ${OBJFORMAT} -B ${OBJARCH}")
 
 # 各バイナリをオブジェクトファイルに変換 & レジストリエントリ生成
 foreach(RESOURCE ${RESOURCE_FILES})
@@ -420,7 +451,7 @@ foreach(RESOURCE ${RESOURCE_FILES})
 
     add_custom_command(
         OUTPUT ${OBJ_FILE}
-        COMMAND ${OBJCOPY} -I binary -O ${OBJFORMAT}
+        COMMAND ${OBJCOPY} -I binary -O ${OBJFORMAT} -B ${OBJARCH}
             --redefine-sym _binary_${ORIG_NAME}_start=_binary_${SYMBOL_NAME}_start
             --redefine-sym _binary_${ORIG_NAME}_end=_binary_${SYMBOL_NAME}_end
             --redefine-sym _binary_${ORIG_NAME}_size=_binary_${SYMBOL_NAME}_size
@@ -547,6 +578,17 @@ target_link_libraries( ${EXENAME} PRIVATE
 	${RESOURCE_LIB}
 )
 
+if(APPLE)
+foreach(PLUGIN ${KRKRZ_DYNAMIC_PLUGINS})
+	add_dependencies(${EXENAME} ${PLUGIN})
+	add_custom_command(TARGET ${EXENAME} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			$<TARGET_FILE:${PLUGIN}>
+			"$<TARGET_FILE_DIR:${EXENAME}>/"
+	)
+endforeach()
+endif()
+
 # ----------------------------------------------------
 # install
 
@@ -569,6 +611,13 @@ elseif(SDL_SHARED)
 		BUNDLE DESTINATION .
 	)
 
+	if (!APPLE)
+		# SDL3 の DLL も一緒にインストール
+		foreach(LIB ${KRKRZ_LIB_SDL3})
+			install(FILES $<TARGET_FILE:${LIB}> DESTINATION .)
+		endforeach()
+	endif()
+
 else()
 
 	install(TARGETS ${EXENAME}
@@ -578,7 +627,7 @@ else()
 
 endif()
 
-elseif(BUILD_WINVER) # !BUILD_SDL
+elseif(KRKRZ_VARIANT STREQUAL "WIN") # !SDL
 
 # ----------------------------------------------------
 # krkrz original win32 version
@@ -653,4 +702,12 @@ install(TARGETS krmovie
 	RUNTIME DESTINATION ${PLUGIN_DIR}
 )
 
-endif() # BUILD_WINVER
+endif() # KRKRZ_VARIANT
+
+# ----------------------------------------------------
+# tests (Phase 3: SIMD パリティテスト)
+# ----------------------------------------------------
+if (KRKRZ_BUILD_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt")
+    enable_testing()
+    add_subdirectory(tests)
+endif()

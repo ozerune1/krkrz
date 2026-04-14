@@ -19,6 +19,11 @@
 #define TVP_GL_IA32_FUNC_EXTERN_DECL(rettype, funcname, arg)  extern rettype __cdecl funcname arg
 #define TVP_GL_IA32_FUNC_PTR_DECL(rettype, funcname, arg) rettype __cdecl (*funcname) arg
 #define TVP_GL_IA32_FUNC_PTR_EXTERN_DECL(rettype, funcname, arg) extern rettype __cdecl (*funcname) arg
+#else
+#define TVP_GL_IA32_FUNC_DECL(rettype, funcname, arg)  rettype funcname arg
+#define TVP_GL_IA32_FUNC_EXTERN_DECL(rettype, funcname, arg)  extern rettype funcname arg
+#define TVP_GL_IA32_FUNC_PTR_DECL(rettype, funcname, arg) rettype (*funcname) arg
+#define TVP_GL_IA32_FUNC_PTR_EXTERN_DECL(rettype, funcname, arg) extern rettype (*funcname) arg
 #endif
 
 #ifdef __cplusplus
@@ -54,6 +59,9 @@ extern void TVPGL_IA32_Init();
 #define TVP_CPU_HAS_TSCP     0x00004000
 #define TVP_CPU_HAS_RDRAND   0x00008000
 #define TVP_CPU_HAS_RDSEED   0x00000100
+/* ARM / ARM64 feature flags (low byte, shared with test harness) */
+#define TVP_CPU_HAS_ARM_NEON    0x00000001
+#define TVP_CPU_HAS_ARM64_ASIMD 0x00000002
 #define TVP_CPU_FEATURE_MASK 0xffffff00
 
 #define TVP_CPU_IS_UNKNOWN   0x00000000
@@ -84,15 +92,6 @@ extern void TVPGL_IA32_Init();
  extern tjs_nchar TVPCPUName[52];
 TVP_GL_IA32_FUNC_EXTERN_DECL( tjs_uint32, TVPCheckCPU, ());
 TVP_GL_IA32_FUNC_EXTERN_DECL( tjs_uint64, TVPGetTSC, ());
-TVP_GL_IA32_FUNC_EXTERN_DECL(void,  TVPTLG6DecodeLine_mmx_a,  (tjs_uint32 *prevline, tjs_uint32 *curline, tjs_int width, tjs_int block_count, tjs_uint8 *filtertypes, tjs_int skipblockbytes, tjs_uint32 *input, tjs_uint32 initialp, tjs_int oddskip, tjs_int dir));
-TVP_GL_IA32_FUNC_EXTERN_DECL(void,  TVPTLG6DecodeLine_sse_a,  (tjs_uint32 *prevline, tjs_uint32 *curline, tjs_int width, tjs_int block_count, tjs_uint8 *filtertypes, tjs_int skipblockbytes, tjs_uint32 *input, tjs_uint32 initialp, tjs_int oddskip, tjs_int dir));
-
-TVP_GL_IA32_FUNC_EXTERN_DECL(void,  TVPTLG6DecodeGolombValuesForFirst_a,  (tjs_int8 *pixelbuf, tjs_int pixel_count, tjs_uint8 *bit_pool));
-TVP_GL_IA32_FUNC_EXTERN_DECL(void,  TVPTLG6DecodeGolombValues_a,  (tjs_int8 *pixelbuf, tjs_int pixel_count, tjs_uint8 *bit_pool));
-TVP_GL_IA32_FUNC_EXTERN_DECL(void,  TVPTLG6DecodeGolombValuesForFirst_mmx_a,  (tjs_int8 *pixelbuf, tjs_int pixel_count, tjs_uint8 *bit_pool));
-TVP_GL_IA32_FUNC_EXTERN_DECL(void,  TVPTLG6DecodeGolombValues_mmx_a,  (tjs_int8 *pixelbuf, tjs_int pixel_count, tjs_uint8 *bit_pool));
-TVP_GL_IA32_FUNC_EXTERN_DECL(void,  TVPTLG6DecodeGolombValuesForFirst_emmx_a,  (tjs_int8 *pixelbuf, tjs_int pixel_count, tjs_uint8 *bit_pool));
-TVP_GL_IA32_FUNC_EXTERN_DECL(void,  TVPTLG6DecodeGolombValues_emmx_a,  (tjs_int8 *pixelbuf, tjs_int pixel_count, tjs_uint8 *bit_pool));
 
 
 #ifdef __cplusplus

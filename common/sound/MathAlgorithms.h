@@ -173,7 +173,7 @@ void  InterleaveOverlappingWindow(float * __restrict dest,
 
 //---------------------------------------------------------------------------
 
-#if defined(_M_IX86)||defined(_M_X64)
+#if defined(TVP_SOUND_HAS_X86_SIMD)
 //---------------------------------------------------------------------------
 // 定数など
 //---------------------------------------------------------------------------
@@ -435,7 +435,8 @@ static inline void VFast_sincos_F4_SSE(__m128 v, __m128 &sin, __m128 &cos)
 
 	_mm_empty();
 }
-#elif defined(_M_X64)
+#else
+// x86_64 (MSVC _M_X64 / GCC __x86_64__) は MMX なし SSE2 版を使う
 #define VFast_sincos_F4_SSE VFast_sincos_F4_SSE2
 #endif
 //---------------------------------------------------------------------------
@@ -534,8 +535,8 @@ static inline __m128 Wrap_Pi_F4_SSE(__m128 v)
 	// 戻る
 	return v;
 }
-#elif defined(_M_X64)
-// x64 の時はSSE2を使う
+#else
+// x86_64 (MSVC _M_X64 / GCC __x86_64__) の時は MMX なし SSE2 版を使う
 #define Wrap_Pi_F4_SSE Wrap_Pi_F4_SSE2
 #endif
 //---------------------------------------------------------------------------
@@ -576,5 +577,15 @@ void  InterleaveOverlappingWindow_sse(float * __restrict dest, const float * __r
 //---------------------------------------------------------------------------
 #endif
 
+//---------------------------------------------------------------------------
+// ARM NEON 版 (Phase SB2-a)。mono/stereo の fast path のみ提供、numch>=3 は
+// 内部でスカラー C 版を呼ぶ。signature / 丸め仕様は _sse 版 = C ref と同じ。
+//---------------------------------------------------------------------------
+#if defined(TVP_SOUND_HAS_ARM_SIMD)
+void DeinterleaveApplyingWindow_neon(float * __restrict dest[], const float * __restrict src,
+					float * __restrict win, int numch, size_t destofs, size_t len);
+void  InterleaveOverlappingWindow_neon(float * __restrict dest, const float * __restrict const * __restrict src,
+					float * __restrict win, int numch, size_t srcofs, size_t len);
+#endif
 
 #endif
