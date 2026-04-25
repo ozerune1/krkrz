@@ -299,6 +299,13 @@ bool TVPMoveFile(const ttstr &oldname, const ttstr &newname)
 	return LocalFileSystem->MoveFile(oldname.c_str(), newname.c_str());
 }
 
+//---------------------------------------------------------------------------
+// TVPLastModifiedFileTime
+//---------------------------------------------------------------------------
+tjs_uint64 TVPLastModifiedFileTime(const ttstr &name)
+{
+	return LocalFileSystem->LastModifiedFileTime(name.c_str());
+}
 
 //---------------------------------------------------------------------------
 // TVPGetAppPath
@@ -477,15 +484,6 @@ retry:
 tTVPPluginHolder::tTVPPluginHolder(const ttstr &aname)
 : LocalTempStorageHolder(nullptr)
 {
-	// android はアーカイブ内プラグイン不可
-#ifndef __ANDROID__
-	// search in TVP storage system
-	ttstr place(TVPGetPlacedPath(aname));
-	if(!place.IsEmpty()) {
-		LocalTempStorageHolder = new tTVPLocalTempStorageHolder(place);
-		return;
-	}
-#endif
 	// not found in TVP storage system; search exepath, exepath\plugin	
 	ttstr basepath = Application->AppPath();
 	ttstr pname = basepath + aname;
@@ -759,7 +757,29 @@ TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/deleteFile)
 }
 TJS_END_NATIVE_STATIC_METHOD_DECL_OUTER(/*object to register*/cls,
 	/*func. name*/deleteFile)
-//----------------------------------------------------------------------
+
+TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/lastModifiedFileTime)
+{
+	if(numparams < 1) return TJS_E_BADPARAMCOUNT;
+
+	tTJSVariant *path = param[0];
+
+	tjs_uint64 ret = 0;
+	if (path && path->Type() == tvtString) {
+		// 正規パス
+		ttstr pathFile = TVPNormalizeStorageName(path->AsString());
+		ret = TVPLastModifiedFileTimeStorage(pathFile);
+	}
+
+	if (result) {
+		*result = (tTVInteger)ret;
+	}
+	return TJS_S_OK;
+}
+TJS_END_NATIVE_STATIC_METHOD_DECL_OUTER(/*object to register*/cls,
+	/*func. name*/lastModifiedFileTime)
+
+	//----------------------------------------------------------------------
 
 	return cls;
 

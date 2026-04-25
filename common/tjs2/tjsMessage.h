@@ -24,7 +24,7 @@ extern void TJSReleaseMessageMapper();
 class tTJSMessageHolder;
 extern void TJSRegisterMessageMap(const tjs_char *name, tTJSMessageHolder *holder);
 extern void TJSUnregisterMessageMap(const tjs_char *name);
-extern bool TJSAssignMessage(const tjs_char *name, const tjs_char *newmsg);
+extern bool TJSAssignMessage(const tjs_char *name, const tjs_char *newmsg, bool createnew=false);
 extern ttstr TJSCreateMessageMapString();
 TJS_EXP_FUNC_DEF(ttstr, TJSGetMessageMapMessage, (const tjs_char *name));
 //---------------------------------------------------------------------------
@@ -47,19 +47,22 @@ public:
 		AssignedMessage = NULL;
 		Name = NULL;
 		DefaultMessage = defmsg;
-		TJSAddRefMessageMapper();
 		if(regist)
 		{
 			Name = name;
+			TJSAddRefMessageMapper();
 			TJSRegisterMessageMap(Name, this);
 		}
 	}
 
 	~tTJSMessageHolder()
 	{
-		if(Name) TJSUnregisterMessageMap(Name);
+		if(Name)
+		{
+			TJSUnregisterMessageMap(Name);
+			TJSReleaseMessageMapper();
+		}
 		if(AssignedMessage) delete [] AssignedMessage, AssignedMessage = NULL;
-		TJSReleaseMessageMapper();
 	}
 
 	void AssignMessage(const tjs_char *msg)
@@ -69,17 +72,11 @@ public:
 		TJS_strcpy(AssignedMessage, msg);
 	}
 
-	void AssignMessage(const tjs_char *msg, tjs_uint len)
-	{
-		if(AssignedMessage) delete [] AssignedMessage, AssignedMessage = NULL;
-		AssignedMessage = new tjs_char[len + 1];
-		TJS_strncpy(AssignedMessage, msg, len);
-		AssignedMessage[len] = TJS_W('\0');
-	}
-
-	operator const tjs_char * ()
+	operator const tjs_char * () const
 		{ return AssignedMessage?AssignedMessage:DefaultMessage; }
 		/* this function may called after destruction */
+
+	bool checkName() const { return Name != NULL; }
 };
 //---------------------------------------------------------------------------
 }

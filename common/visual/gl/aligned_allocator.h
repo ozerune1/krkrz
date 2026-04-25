@@ -23,8 +23,8 @@ struct aligned_allocator : public std::allocator<T>
 	template <class U> aligned_allocator& operator=(const aligned_allocator<U, TAlign>&) throw()  {}
 	// allocate
 #ifdef _WIN32
-	pointer allocate(size_type c, const void* hint = 0) {
-		return static_cast<pointer>( _mm_malloc( sizeof(T)*c, TAlign ) );
+	T* allocate(std::size_t c, const void* /*hint*/ = 0) {
+		return static_cast<T*>( _mm_malloc( sizeof(T)*c, TAlign ) );
 	}
 #else
 	T* allocate( std::size_t c ) {
@@ -35,7 +35,7 @@ struct aligned_allocator : public std::allocator<T>
 #endif
 	// deallocate
 #ifdef _WIN32
-	void deallocate(pointer p, size_type n) {
+	void deallocate(T* p, std::size_t /*n*/) {
 		_mm_free( p );
 	}
 #else

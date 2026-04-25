@@ -33,3 +33,4 @@ data
 krkrz_libplugin
 vcpkg_installed
 .DS_store
+.krkrz_history

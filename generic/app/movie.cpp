@@ -29,6 +29,17 @@ class tTVPMoviePlayer : public iTVPMoviePlayer {
     return true;
   }
 
+  bool OpenStream(IMovieReadStream *stream) {
+    IMoviePlayer::InitParam param;
+    param.useOwnAudioEngine = true;
+    param.videoColorFormat = IMoviePlayer::COLOR_BGRA;
+    mPlayer = IMoviePlayer::CreateMoviePlayer(stream, param);
+    if (!mPlayer) {
+      return false;
+    }
+    return true;
+  }
+
   virtual void Play(bool loop = false) {
     mPlayer->Play(loop);
   }
@@ -96,14 +107,26 @@ class tTVPMoviePlayer : public iTVPMoviePlayer {
   void *mUserData;
 };
 
-// CreatePlayer
-iTVPMoviePlayer* 
+// CreatePlayer (ファイルパス版)
+iTVPMoviePlayer*
 TVPCreateMoviePlayer(const tjs_char *filename)
 {
   std::string nfilename;
   TVPUtf16ToUtf8(nfilename, filename);
   tTVPMoviePlayer *player =  new tTVPMoviePlayer();
   if (player->Open(nfilename.c_str())) {
+    return player;
+  }
+  delete player;
+  return nullptr;
+}
+
+// CreatePlayer (ストリーム版)
+iTVPMoviePlayer*
+TVPCreateMoviePlayer(IMovieReadStream *stream, const char *filename)
+{
+  tTVPMoviePlayer *player = new tTVPMoviePlayer();
+  if (player->OpenStream(stream)) {
     return player;
   }
   delete player;

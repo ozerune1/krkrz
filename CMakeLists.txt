@@ -23,6 +23,25 @@ set(KRKRZ_VARIANT "SDL" CACHE STRING "Build variant: SDL (default), WIN (Windows
 option(KRKRZ_BUILD_TESTS "build SIMD parity tests" ON)
 option(KRKRZ_SDL3_SPLASHWINDOW "use splash window" OFF)
 
+# REPL はデスクトップ (Win/Mac/Linux) でのみデフォルト有効
+if(WIN32 OR APPLE OR (UNIX AND NOT ANDROID AND NOT IOS))
+	set(KRKRZ_REPL_DEFAULT ON)
+else()
+	set(KRKRZ_REPL_DEFAULT OFF)
+endif()
+option(KRKRZ_REPL "enable interactive TJS REPL (requires icline)" ${KRKRZ_REPL_DEFAULT})
+
+# VSCode Debug Adapter Protocol サーバ。デフォルト ON。OFF にすると DAP 関連の
+# ソケット/JSON 処理が #ifdef で全部抜ける (組み込み等で不要な場合)。
+option(KRKRZ_ENABLE_DAP "enable VSCode Debug Adapter Protocol server" ON)
+
+if(KRKRZ_ENABLE_DAP)
+	set(KRKRZ_DEFINES_DAP KRKRZ_ENABLE_DAP)
+	if(WIN32)
+		set(KRKRZ_LIB_DAP ws2_32)
+	endif()
+endif()
+
 if(WIN32 AND (CMAKE_SIZEOF_VOID_P EQUAL 8))
 set(WIN64 1)
 endif()
@@ -77,6 +96,10 @@ if (MASTER)
 list(APPEND KRKRZ_DEFINES
 MASTER
 )
+endif()
+
+if (KRKRZ_REPL)
+list(APPEND KRKRZ_DEFINES KRKRZ_USE_REPL)
 endif()
 
 if (KRKRZ_USE_SJIS)
@@ -247,7 +270,32 @@ endif()
 endif()
 
 find_path(PICOJSON_INCLUDE_DIRS "picojson/picojson.h")
-find_package(fmt CONFIG REQUIRED)
+# ----------------------------------------------------
+# ログ整形は tvpfmt (common/utils/LogCore.cpp の自前実装) が担当するため
+# fmtlib / <format> への依存は持たない。機能追加が必要なら LogIntf.h /
+# LogCore.cpp の vformat 側に限定して行う。
+# ----------------------------------------------------
+
+# ----------------------------------------------------
+# icline (portable readline replacement, isocline fork)
+# ----------------------------------------------------
+if (KRKRZ_REPL AND NOT TARGET icline)
+	include(FetchContent)
+	FetchContent_Declare(
+		icline
+		GIT_REPOSITORY https://github.com/deths74r/icline.git
+		GIT_TAG        main
+		EXCLUDE_FROM_ALL
+	)
+	FetchContent_MakeAvailable(icline)
+	if (MSVC)
+		target_compile_options(icline PRIVATE /wd4996 /wd4244 /wd4267 /wd4101 /wd4018)
+	else()
+		target_compile_options(icline PRIVATE -Wno-unused-function -Wno-unused-variable)
+	endif()
+	list(APPEND KRKRZ_INC ${icline_SOURCE_DIR}/include)
+	set(KRKRZ_LIB_REPL icline)
+endif()
 
 if (KRKRZ_VARIANT STREQUAL "LIB")
 
@@ -286,8 +334,9 @@ target_compile_definitions( ${LIBNAME} PUBLIC
 	__GENERIC__
 	TVP_DONT_AUTOLOAD_PROVINCE
 	TVP_DONT_AUTOLOAD_MASK
-	${KRKRZ_DEFINES_PLATFORM}  
+	${KRKRZ_DEFINES_PLATFORM}
 	${KRKRZ_DEFINES_OPENGL}
+	${KRKRZ_DEFINES_DAP}
 )
 
 target_link_libraries( ${LIBNAME} PUBLIC
@@ -299,13 +348,14 @@ target_link_libraries( ${LIBNAME} PUBLIC
 	Vorbis::vorbisfile
 	ZLIB::ZLIB
 	oniguruma::onig
-	fmt::fmt
 	PNG::PNG
 	glm::glm
 	$<IF:$<TARGET_EXISTS:Opus::opus>,Opus::opus,>
 	$<IF:$<TARGET_EXISTS:OpusFile::opusfile>,OpusFile::opusfile,>
 	$<IF:$<TARGET_EXISTS:opusfile>,opusfile,>
+	${KRKRZ_LIB_REPL}
 	${KRKRZ_LIB_ADD}
+	${KRKRZ_LIB_DAP}
 )
 
 elseif(KRKRZ_VARIANT STREQUAL "SDL") # !LIB
@@ -526,10 +576,20 @@ add_executable(${EXENAME} MACOSX_BUNDLE
 
 else()
 
-add_executable(${EXENAME}
-	${KRKRZ_SRC} 
-	${KRKRZ_SRC_OPENGL} 
-	${KRKRZ_SRC_GENERIC} 
+if (WIN32)
+	# Windows では GUI サブシステム化し、起動時に親シェルのコンソールに attach する
+	# (TVPAttachWindowsConsole())。CONSOLE サブシステムのままだと Git Bash / mintty
+	# 経由で起動した場合に std ハンドルが winpty のパイプとなり、icline が要求する
+	# 本物の Win32 console ハンドルを得られず REPL のエコー等が壊れるため。
+	set(KRKRZ_SDL_EXE_TYPE WIN32)
+else()
+	set(KRKRZ_SDL_EXE_TYPE "")
+endif()
+
+add_executable(${EXENAME} ${KRKRZ_SDL_EXE_TYPE}
+	${KRKRZ_SRC}
+	${KRKRZ_SRC_OPENGL}
+	${KRKRZ_SRC_GENERIC}
 	${KRKRZ_SRC_SDL3}
 	${KRKRZ_SRC_PLATFORM}
 	${KRKRZ_SRC_ADD}
@@ -552,8 +612,9 @@ target_compile_definitions(${EXENAME} PRIVATE
 	__GENERIC__
 	TVP_DONT_AUTOLOAD_PROVINCE
 	TVP_DONT_AUTOLOAD_MASK
-	${KRKRZ_DEFINES_PLATFORM}  
+	${KRKRZ_DEFINES_PLATFORM}
 	${KRKRZ_DEFINES_OPENGL}
+	${KRKRZ_DEFINES_DAP}
 )
 
 target_link_libraries( ${EXENAME} PRIVATE
@@ -565,16 +626,17 @@ target_link_libraries( ${EXENAME} PRIVATE
 	Vorbis::vorbisfile
 	ZLIB::ZLIB
 	oniguruma::onig
-	fmt::fmt
 	PNG::PNG
 	glm::glm
 	$<IF:$<TARGET_EXISTS:Opus::opus>,Opus::opus,>
 	$<IF:$<TARGET_EXISTS:OpusFile::opusfile>,OpusFile::opusfile,>
 	$<IF:$<TARGET_EXISTS:opusfile>,opusfile,>
 	$<IF:$<TARGET_EXISTS:movieplayer>,movieplayer,>
+	${KRKRZ_LIB_REPL}
 	${KRKRZ_LIB_SDL3}
 	${KRKRZ_LIB_ADD}
 	${KRKRZ_LIB_PLATFORM}
+	${KRKRZ_LIB_DAP}
 	${RESOURCE_LIB}
 )
 
@@ -671,8 +733,9 @@ target_compile_definitions( ${EXENAME} PRIVATE
 	__WINVER__
 	TJS_DEBUG_DUMP_STRING
 	TVP_REPORT_HW_EXCEPTION
-	${KRKRZ_DEFINES_PLATFORM}  
+	${KRKRZ_DEFINES_PLATFORM}
 	${KRKRZ_DEFINES_OPENGL}
+	${KRKRZ_DEFINES_DAP}
 )
 
 target_link_libraries( ${EXENAME} PRIVATE
@@ -686,11 +749,12 @@ target_link_libraries( ${EXENAME} PRIVATE
 	Vorbis::vorbisfile
 	ZLIB::ZLIB
 	oniguruma::onig
-	fmt::fmt
 	PNG::PNG
 	glm::glm
  	plog::plog
-	${KRKRZ_LIB_ADD}		
+	${KRKRZ_LIB_REPL}
+	${KRKRZ_LIB_ADD}
+	${KRKRZ_LIB_DAP}
 )
 
 install(TARGETS ${EXENAME}

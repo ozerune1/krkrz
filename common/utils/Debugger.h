@@ -45,26 +45,28 @@ enum tTJSDBGEvent {
 	DBGEV_GER_EXCEPTION_FLG,	//!< ger -> gee 例外発生時に停止するかどうか
 };
 
+// Breakpoint メタ情報 (Phase 5b: 条件付き BP + log point 対応)
+struct BPMeta {
+	tjs_string condition;   //!< 空なら無条件 (全ヒットで停止)
+	tjs_string logMessage;  //!< 空なら通常 BP / 非空なら log point (停止せず出力)
+};
+
 struct BreakpointLine {
-	typedef std::map<int,int>		lines;
+	typedef std::map<int, BPMeta>	lines;
 	typedef lines::iterator			iterator;
 	typedef lines::const_iterator	const_iterator;
 
 	lines	Lines;
 
 	bool IsBreakPoint( int lineno ) const {
-		const_iterator j = Lines.find( lineno );
-		if( j != Lines.end() ) {
-			return true;
-		}
-		return false;
+		return Lines.find( lineno ) != Lines.end();
 	}
-	void SetBreakPoint( int lineno ) {
-		iterator i = Lines.find( lineno );
-		if( i == Lines.end() ) {
-			std::pair<iterator, bool> ret = Lines.insert( BreakpointLine::lines::value_type( lineno, lineno ) );
-			assert( ret.second );
-		}
+	const BPMeta* GetMeta( int lineno ) const {
+		const_iterator j = Lines.find( lineno );
+		return (j != Lines.end()) ? &j->second : nullptr;
+	}
+	void SetBreakPoint( int lineno, const BPMeta& meta = BPMeta{} ) {
+		Lines[lineno] = meta;
 	}
 	void ClearBreakPoint( int lineno ) {
 		Lines.erase( lineno );
@@ -78,14 +80,18 @@ struct Breakpoints {
 
 	breakpoints BreakPoint;
 
-	void SetBreakPoint( const tjs_string& filename, int lineno ) {
+	void SetBreakPoint( const tjs_string& filename, int lineno, const BPMeta& meta = BPMeta{} ) {
 		iterator i = BreakPoint.find( filename );
 		if( i == BreakPoint.end() ) {
 			std::pair<iterator, bool> ret = BreakPoint.insert( breakpoints::value_type( filename, BreakpointLine() ) );
 			assert( ret.second );
 			i = ret.first;
 		}
-		i->second.SetBreakPoint(lineno);
+		i->second.SetBreakPoint(lineno, meta);
+	}
+	const BPMeta* GetMeta( const tjs_string& filename, int lineno ) const {
+		const_iterator i = BreakPoint.find( filename );
+		return (i != BreakPoint.end()) ? i->second.GetMeta(lineno) : nullptr;
 	}
 	void ClearBreakPoint( const tjs_string& filename, int lineno ) {
 		iterator i = BreakPoint.find( filename );

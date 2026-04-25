@@ -14,36 +14,135 @@
 #include "tjsNative.h"
 #include "CharacterSet.h"
 
+#include <cstdint>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+
 //---------------------------------------------------------------------------
 // log functions
 //---------------------------------------------------------------------------
 
 /*[*/
 
-#include <fmt/core.h>
+// ---------------------------------------------------------------------------
+// tvpfmt — ログ専用ミニマル書式整形
+//
+// 旧実装は C++20 <format> / fmtlib のどちらかに切替える薄いラッパだったが、
+// C++20 環境によって fmtlib 9/10 がビルドできないケースが出たため、ログ用途に
+// 必要な機能だけを自前実装して fmt 依存を完全に切り離している。
+//
+// サポートする書式:
+//   {}            — 既定 (文字列/整数/ポインタ/真偽値)
+//   {:d} {:i}     — 10 進整数
+//   {:x} {:X}     — 16 進整数
+//   {:o}          — 8 進整数
+//   {:s}          — 文字列
+//   {:0Nd} {:0Nx} — ゼロ埋め + 幅指定
+//   {:Nd} {:Nx}   — 幅指定のみ
+//   {{  }}        — 波括弧エスケープ
+// 浮動小数点・位置指定・精度・アライン・type='b' は未対応 (ログ内で未使用)。
+//
+// tjs_char* / ttstr / tjs_string は整形境界で UTF-8 へ変換される。低層の
+// TVPLog() は常に UTF-8 を受け取る前提。
+// ---------------------------------------------------------------------------
+namespace tvpfmt {
 
-
-template <>
-struct fmt::formatter<ttstr> {
-    constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
-    template <typename FormatContext>
-    auto format(const ttstr &msg, FormatContext& ctx) const{
-        std::string utf8Str;
-        TVPUtf16ToUtf8(utf8Str, msg.c_str());
-        return fmt::format_to(ctx.out(), "{}", utf8Str);
-    }
+class format_error : public std::runtime_error {
+public:
+    explicit format_error(const std::string& w) : std::runtime_error(w) {}
+    explicit format_error(const char* w) : std::runtime_error(w) {}
 };
 
-template <>
-struct fmt::formatter<tjs_string> {
-    constexpr auto parse(fmt::format_parse_context& ctx) { return ctx.begin(); }
-    template <typename FormatContext>
-    auto format(const tjs_string &msg, FormatContext& ctx) const{
-        std::string utf8Str;
-        TVPUtf16ToUtf8(utf8Str, msg.c_str());
-        return fmt::format_to(ctx.out(), "{}", utf8Str);
-    }
+namespace detail {
+struct FormatArg {
+    enum Kind {
+        K_NONE, K_S64, K_U64, K_CSTR, K_STR, K_PTR, K_BOOL, K_DBL
+    } kind = K_NONE;
+    int64_t     i64  = 0;
+    uint64_t    u64  = 0;
+    double      dbl  = 0.0;
+    const char *cstr = nullptr;
+    const void *ptr  = nullptr;
+    std::string str;
 };
+
+inline FormatArg make_arg_impl(bool v)           { FormatArg a; a.kind=FormatArg::K_BOOL; a.u64=v?1:0; return a; }
+inline FormatArg make_arg_impl(char v)           { FormatArg a; a.kind=FormatArg::K_S64;  a.i64=v; return a; }
+inline FormatArg make_arg_impl(signed char v)    { FormatArg a; a.kind=FormatArg::K_S64;  a.i64=v; return a; }
+inline FormatArg make_arg_impl(unsigned char v)  { FormatArg a; a.kind=FormatArg::K_U64;  a.u64=v; return a; }
+inline FormatArg make_arg_impl(short v)          { FormatArg a; a.kind=FormatArg::K_S64;  a.i64=v; return a; }
+inline FormatArg make_arg_impl(unsigned short v) { FormatArg a; a.kind=FormatArg::K_U64;  a.u64=v; return a; }
+inline FormatArg make_arg_impl(int v)            { FormatArg a; a.kind=FormatArg::K_S64;  a.i64=v; return a; }
+inline FormatArg make_arg_impl(unsigned int v)   { FormatArg a; a.kind=FormatArg::K_U64;  a.u64=v; return a; }
+inline FormatArg make_arg_impl(long v)           { FormatArg a; a.kind=FormatArg::K_S64;  a.i64=v; return a; }
+inline FormatArg make_arg_impl(unsigned long v)  { FormatArg a; a.kind=FormatArg::K_U64;  a.u64=v; return a; }
+inline FormatArg make_arg_impl(long long v)      { FormatArg a; a.kind=FormatArg::K_S64;  a.i64=v; return a; }
+inline FormatArg make_arg_impl(unsigned long long v){ FormatArg a; a.kind=FormatArg::K_U64; a.u64=v; return a; }
+inline FormatArg make_arg_impl(float v)          { FormatArg a; a.kind=FormatArg::K_DBL;  a.dbl=v; return a; }
+inline FormatArg make_arg_impl(double v)         { FormatArg a; a.kind=FormatArg::K_DBL;  a.dbl=v; return a; }
+inline FormatArg make_arg_impl(long double v)    { FormatArg a; a.kind=FormatArg::K_DBL;  a.dbl=(double)v; return a; }
+
+inline FormatArg make_arg_impl(const char *v) {
+    FormatArg a; a.kind = FormatArg::K_CSTR; a.cstr = v ? v : "(null)"; return a;
+}
+inline FormatArg make_arg_impl(char *v) { return make_arg_impl(static_cast<const char*>(v)); }
+
+inline FormatArg make_arg_impl(const std::string& v) {
+    FormatArg a; a.kind = FormatArg::K_STR; a.str = v; return a;
+}
+inline FormatArg make_arg_impl(std::string&& v) {
+    FormatArg a; a.kind = FormatArg::K_STR; a.str = std::move(v); return a;
+}
+
+// tjs_char*/ttstr/tjs_string は境界で UTF-8 へ変換
+inline FormatArg make_arg_impl(const tjs_char *v) {
+    FormatArg a; a.kind = FormatArg::K_STR;
+    if (v) TVPUtf16ToUtf8(a.str, v);
+    return a;
+}
+inline FormatArg make_arg_impl(tjs_char *v) { return make_arg_impl(static_cast<const tjs_char*>(v)); }
+
+inline FormatArg make_arg_impl(const ttstr& v) {
+    FormatArg a; a.kind = FormatArg::K_STR;
+    if (v.c_str()) TVPUtf16ToUtf8(a.str, v.c_str());
+    return a;
+}
+inline FormatArg make_arg_impl(const tjs_string& v) {
+    FormatArg a; a.kind = FormatArg::K_STR;
+    TVPUtf16ToUtf8(a.str, v);
+    return a;
+}
+
+// 汎用ポインタ (上記の非テンプレート overload に該当しないもの)
+template<typename T>
+inline FormatArg make_arg_impl(T *v) {
+    FormatArg a; a.kind = FormatArg::K_PTR; a.ptr = static_cast<const void*>(v); return a;
+}
+} // namespace detail
+
+class format_args {
+public:
+    std::vector<detail::FormatArg> args;
+};
+
+template<typename... Args>
+inline format_args make_format_args(Args&&... as) {
+    format_args r;
+    r.args.reserve(sizeof...(as));
+    (r.args.emplace_back(detail::make_arg_impl(std::forward<Args>(as))), ...);
+    return r;
+}
+
+std::string vformat(const char *fmt, const format_args& args);
+
+template<typename... Args>
+inline std::string format(const char *fmt_, Args&&... as) {
+    return vformat(fmt_, make_format_args(std::forward<Args>(as)...));
+}
+
+} // namespace tvpfmt
 
 enum TVPLogLevel {
     TVPLOG_LEVEL_VERBOSE = 0,
@@ -72,13 +171,43 @@ enum TVPLogLevel {
 
 void TVPLogInit(TVPLogLevel logLevel);
 TJS_EXP_FUNC_DEF(void, TVPLogSetLevel, (TVPLogLevel logLevel));
-TJS_EXP_FUNC_DEF(void, TVPLog, (TVPLogLevel logLevel, const char *file, int line, const char *func, const char *fmt, fmt::format_args args));
+TJS_EXP_FUNC_DEF(void, TVPLog, (TVPLogLevel logLevel, const char *file, int line, const char *func, const char *fmt, tvpfmt::format_args args));
 TJS_EXP_FUNC_DEF(void, TVPLogMsg, (TVPLogLevel logLevel, const char *msg));
+
+//---------------------------------------------------------------------------
+// コンソール sink フック
+//
+// 整形済みの 1 行 (UTF-8) を受け取る差し替え可能な出力先。
+// REPL など、行編集中の端末に割り込み出力したいサブシステムが登録する。
+// フックが true を返した場合、LogCore は既定のコンソール書き出しを行わない。
+//---------------------------------------------------------------------------
+typedef bool (*TVPLogConsoleSinkFn)(TVPLogLevel level, const char *utf8_line);
+TJS_EXP_FUNC_DEF(void, TVPLogSetConsoleSink, (TVPLogConsoleSinkFn hook));
+TJS_EXP_FUNC_DEF(TVPLogConsoleSinkFn, TVPLogGetConsoleSink, ());
+
+//---------------------------------------------------------------------------
+// LogCore への統合ディスパッチ
+//
+// LogImpl (plog / SDL3) は platform 固有の整形を行ったあと、
+// 1 行 UTF-8 として TVPLogDispatchLine を呼ぶ。LogCore はタイムスタンプ付与・
+// リングバッファ追加・important cache 追加・TJS logging handler 呼び出し・
+// ファイル出力・コンソール出力 (sink or 既定) をまとめて処理する。
+//
+// LogCore 側でタイムスタンプを一元付与するため、LogImpl 側は
+// タイムスタンプを含めない「素の本文」を渡すこと。
+//---------------------------------------------------------------------------
+TJS_EXP_FUNC_DEF(void, TVPLogDispatchLine, (TVPLogLevel level, const char *utf8_line));
+
+//---------------------------------------------------------------------------
+// TJS logging handler registry (旧 DebugIntf.cpp から LogCore.cpp に移動)
+//---------------------------------------------------------------------------
+extern void TVPAddLoggingHandler(tTJSVariantClosure clo);
+extern void TVPRemoveLoggingHandler(tTJSVariantClosure clo);
 
 /*[*/
 
 // ログマクロ実装のヘルパー
-#define TVPLOG_IMPL(level, format, ...) do{ TVPLog(level, __FILE__, __LINE__, __FUNCTION__, format, fmt::make_format_args(__VA_ARGS__)); } while(0)
+#define TVPLOG_IMPL(level, format, ...) do{ TVPLog(level, __FILE__, __LINE__, __FUNCTION__, format, tvpfmt::make_format_args(__VA_ARGS__)); } while(0)
 
 // ログレベルに応じたマクロ定義
 #if TVPLOG_LEVEL <= TVPLOG_LEVEL_VERBOSE

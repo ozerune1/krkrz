@@ -194,12 +194,25 @@ size_t TJS_strlen(const tjs_char *d)
 }
 //---------------------------------------------------------------------------
 #ifdef TJS_DEBUG_TRACE
+// LogImpl 経由でコンソール/REPL sink に流すため、
+// ここから stderr へ直接書かない (icline と衝突するため)。
+enum TVPLogLevel : int;
+extern void TVPLogMsg(TVPLogLevel logLevel, const char *msg);
 void TJS_cdecl TJS_debug_out(const tjs_char *format, ...)
 {
 	va_list param;
 	va_start(param, format);
-	TJS_vfprintf(stderr, format, param);
+	tjs_char buf[1024];
+	TJS_vsnprintf(buf, sizeof(buf)/sizeof(buf[0]), format, param);
 	va_end(param);
+	buf[sizeof(buf)/sizeof(buf[0]) - 1] = 0;
+	std::string utf8;
+	TVPUtf16ToUtf8(utf8, tjs_string(buf));
+	// 末尾の改行は LogMsg/sink 側の整形に任せる
+	while (!utf8.empty() && (utf8.back() == '\n' || utf8.back() == '\r'))
+		utf8.pop_back();
+	// TVPLOG_LEVEL_DEBUG = 1
+	TVPLogMsg(static_cast<TVPLogLevel>(1), utf8.c_str());
 }
 //---------------------------------------------------------------------------
 #endif

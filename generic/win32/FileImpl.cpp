@@ -28,6 +28,7 @@ public:
 	virtual iTJSBinaryStream *OpenStream(const tjs_char *path, const tjs_uint32 flags);
 	virtual void CommitSavedata();
 	virtual void RollbackSavedata();
+	virtual tjs_uint64 LastModifiedFileTime(const tjs_char *path);
 };
 
 StdFileSystem::StdFileSystem()
@@ -358,6 +359,20 @@ StdFileSystem::CommitSavedata()
 void
 StdFileSystem::RollbackSavedata()
 {
+}
+
+tjs_uint64
+StdFileSystem::LastModifiedFileTime(const tjs_char *path)
+{
+	tjs_uint64 ret = 0;
+	struct __stat64 stbuf;
+	if(_wstat64( (const wchar_t*)path, &stbuf) != 0 ) {
+		TVPThrowExceptionMessage(TVPSeekError);
+	}
+	ret = stbuf.st_mtime;
+	// FILETIME 互換に変換
+	ret += 11644473600LL; // 1970-01-01T00
+	return ret;
 }
 
 iTVPLocalFileSystem *

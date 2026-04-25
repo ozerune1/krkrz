@@ -22,6 +22,26 @@ extern bool TVPLoggingToFile;
 extern void TVPSetOnLog(void (*func)(const ttstr & line));
 TJS_EXP_FUNC_DEF(void, TVPAddLog, (const ttstr &line));
 TJS_EXP_FUNC_DEF(void, TVPAddImportantLog, (const ttstr &line));
+
+//---------------------------------------------------------------------------
+// TVPPrettyPrint
+//
+// tTJSVariant を人間可読な文字列に整形する。REPL / デバッグ用途。
+//  - void          → "(void)"
+//  - null (object) → "(null)"
+//  - int/real      → 数値のリテラル表現
+//  - string        → ダブルクォート付きエスケープ済み表現
+//  - octet         → <% ... %>
+//  - array         → [ e1, e2, ... ]  (非 compact は改行インデント付き)
+//  - dictionary    → %[ "k" => v, ... ]
+//  - その他 object  → "(object: <address>)"
+//  - 深さ到達       → 配列/辞書は "[...]" / "%[...]"
+//  - 再帰検出       → "(recursion)"
+//
+// depth: 展開する最大ネスト段数 (0 で容器の中身を畳む)
+// compact: true で単一行・最小空白、false で複数行インデント
+//---------------------------------------------------------------------------
+TJS_EXP_FUNC_DEF(ttstr, TVPPrettyPrint, (const tTJSVariant &variant, int depth, bool compact));
 extern ttstr TVPGetLastLog(tjs_uint n);
 extern iTJSConsoleOutput * TVPGetTJS2ConsoleOutputGateway();
 extern iTJSConsoleOutput * TVPGetTJS2DumpOutputGateway();

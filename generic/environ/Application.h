@@ -182,17 +182,21 @@ public:
 	// システム諸元取得
 	// ----------------------------------------------------------------------
 
+	virtual const tjs_string& InitDataPath() = 0; //< データ書き出し先のパスを初期化して返す
+
 	virtual const tjs_string& ExePath() const = 0; //< 実行ファイルのパス
 	virtual const tjs_string& AppPath() const = 0; //< 実行ファイルのある場所のパス
 	virtual const tjs_string& ResourcePath() const = 0; //< リソースフォルダのパス
 	virtual const tjs_string& PluginPath() const = 0; //< プラグインフォルダのパス
 	virtual const tjs_string& TempPath() const = 0; //< テンポラリ領域のパス
 	virtual const tjs_string& ProjectPath() const = 0; //< プロジェクトデータのパス
-	virtual const tjs_string& DataPath() const = 0; //< データ書き出し先のパス
 	virtual const tjs_string& LogPath() const = 0; //< ログデータのパス
 
 	virtual const std::string& getLanguage() const = 0; //< 言語名取得
 	virtual const std::string& getCountry() const = 0; //< 国名取得
+
+	virtual const tjs_string& getPlatformName() const = 0;
+	virtual const tjs_string& getOsName() const = 0;
 
 	// 全体引数
 	tjs_int GetArgumentCount() const { return _args.size(); }

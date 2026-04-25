@@ -13,6 +13,8 @@
 #include "tjsMessage.h"
 #include "tjsHashSearch.h"
 
+#include <assert.h>
+
 namespace TJS
 {
 
@@ -21,15 +23,29 @@ namespace TJS
 //---------------------------------------------------------------------------
 class tTJSMessageMapper
 {
-	tTJSHashTable<ttstr, tTJSMessageHolder*> Hash;
+	typedef tTJSHashTable<ttstr, tTJSMessageHolder*> tHash;
+	tHash Hash;
+
 	tjs_uint RefCount;
 
 public:
 	tTJSMessageMapper() {;}
-	~tTJSMessageMapper() {;}
+	~tTJSMessageMapper()
+	{
+		// delete anonymous messages
+		tHash::tIterator i;
+		for(i = Hash.GetFirst(); !i.IsNull(); i++)
+		{
+			if (i.GetValue()->checkName()) continue;
+			delete i.GetValue();
+			i.GetValue() = NULL;
+		}
+		Hash.Clear();
+	}
 
 	void Register(const tjs_char *name, tTJSMessageHolder *holder)
 	{
+		assert(holder->checkName()); // non-anonymous: always holder->Name != NULL
 		Hash.Add(ttstr(name), holder);
 	}
 
@@ -38,7 +54,7 @@ public:
 		Hash.Delete(ttstr(name));
 	}
 
-	bool AssignMessage(const tjs_char *name, const tjs_char *newmsg)
+	bool AssignMessage(const tjs_char *name, const tjs_char *newmsg, bool createnew)
 	{
 		tTJSMessageHolder **holder = Hash.Find(ttstr(name));
 		if(holder)
@@ -46,15 +62,12 @@ public:
 			(*holder)->AssignMessage(newmsg);
 			return true;
 		}
-		return false;
-	}
-
-	bool AssignMessage(const tjs_char *name, const tjs_char *newmsg, tjs_uint len)
-	{
-		tTJSMessageHolder **holder = Hash.Find(ttstr(name));
-		if(holder)
+		else if (createnew)
 		{
-			(*holder)->AssignMessage(newmsg,len);
+			// create anonymous message
+			tTJSMessageHolder *entry = new tTJSMessageHolder(NULL, NULL, false); // entry->Name == NULL
+			entry->AssignMessage(newmsg);
+			Hash.Add(ttstr(name), entry);
 			return true;
 		}
 		return false;
@@ -136,9 +149,9 @@ void TJSUnregisterMessageMap(const tjs_char *name)
 	if(TJSMessageMapper) TJSMessageMapper->Unregister(name);
 }
 //---------------------------------------------------------------------------
-bool TJSAssignMessage(const tjs_char *name, const tjs_char *newmsg)
+bool TJSAssignMessage(const tjs_char *name, const tjs_char *newmsg, bool createnew)
 {
-	if(TJSMessageMapper) return TJSMessageMapper->AssignMessage(name, newmsg);
+	if(TJSMessageMapper) return TJSMessageMapper->AssignMessage(name, newmsg, createnew);
 	return false;
 }
 //---------------------------------------------------------------------------

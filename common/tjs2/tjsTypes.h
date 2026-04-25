@@ -162,6 +162,7 @@ typedef int32_t HRESULT;
 #ifdef __cplusplus
 typedef wchar_t tjs_char;
 typedef std::wstring tjs_string;
+typedef std::wstring_view tjs_string_view;
 #else
 typedef tjs_uint16 tjs_char;
 #endif
@@ -173,6 +174,7 @@ typedef tjs_uint16 tjs_char;
 #ifdef __cplusplus
 typedef char16_t tjs_char;
 typedef std::u16string tjs_string;
+typedef std::u16string_view tjs_string_view;
 #else
 typedef tjs_uint16 tjs_char;
 #endif

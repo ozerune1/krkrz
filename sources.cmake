@@ -47,6 +47,9 @@ common/tjs2/tjsDate.cpp
 common/tjs2/tjsdate.tab.cpp
 common/tjs2/tjsDateParser.cpp
 common/tjs2/tjsDebug.cpp
+common/tjs2/tjsDebuggerHook.cpp
+common/tjs2/tjsDebuggerSymbols.cpp
+common/tjs2/tjsDebuggerCore.cpp
 common/tjs2/tjsDictionary.cpp
 common/tjs2/tjsDisassemble.cpp
 common/tjs2/tjsError.cpp
@@ -101,6 +104,8 @@ common/sound/WaveSegmentQueue.cpp
 common/sound/OpusCodecDecoder.cpp
 common/sound/VorbisCodecDecoder.cpp
 common/utils/ClipboardIntf.cpp
+common/utils/DAPServer.cpp
+common/utils/LogCore.cpp
 common/utils/cp932_uni.cpp
 common/utils/DebugIntf.cpp
 common/utils/md5.c
@@ -112,6 +117,7 @@ common/utils/TimerIntf.cpp
 common/utils/TVPTimer.cpp
 common/utils/uni_cp932.cpp
 common/utils/VelocityTracker.cpp
+common/utils/WinConsole.cpp
 common/visual/BitmapIntf.cpp
 common/visual/BitmapLayerTreeOwner.cpp
 common/visual/BitmapInfomation.cpp
@@ -149,6 +155,10 @@ common/visual/gl/ResampleImage.cpp
 common/visual/gl/WeightFunctor.cpp
 common/base/FuncStubs.cpp
 )
+
+if (KRKRZ_REPL)
+list(APPEND KRKRZ_SRC common/utils/REPL.cpp)
+endif()
 
 if (KRKRZ_USE_OPENGL)
 

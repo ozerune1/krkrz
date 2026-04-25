@@ -1,5 +1,6 @@
 #include "tjsCommHead.h"
 #include <LocalFileSystem.h>
+#include <chrono>
 #include <functional>
 #include <filesystem>
 #include <fstream>
@@ -25,6 +26,7 @@ public:
 	virtual iTJSBinaryStream *OpenStream(const tjs_char *path, const tjs_uint32 flags);
 	virtual void CommitSavedata();
 	virtual void RollbackSavedata();
+	virtual tjs_uint64 LastModifiedFileTime(const tjs_char *path);
 };
 
 StdFileSystem::StdFileSystem()
@@ -307,6 +309,25 @@ StdFileSystem::CommitSavedata()
 void
 StdFileSystem::RollbackSavedata()
 {
+}
+
+tjs_uint64
+StdFileSystem::LastModifiedFileTime(const tjs_char *path)
+{
+	std::error_code err;
+	auto ftime = std::filesystem::last_write_time(path, err);
+	if (err) {
+		return static_cast<tjs_uint64>(-1);
+	}
+
+	// Convert file_clock time to system_clock time by comparing each clock's "now".
+	// This absorbs implementation-dependent epoch/duration differences.
+	auto systime = std::chrono::system_clock::now() + (ftime - std::filesystem::file_time_type::clock::now());
+	const auto unix_100ns = std::chrono::duration_cast<std::chrono::duration<tjs_int64, std::ratio<1, 10000000>>>(
+		systime.time_since_epoch()).count();
+
+	// FILETIME: 100ns intervals since 1601-01-01 UTC.
+	return static_cast<tjs_uint64>(unix_100ns + 116444736000000000LL);
 }
 
 iTVPLocalFileSystem *

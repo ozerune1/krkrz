@@ -18,6 +18,7 @@
 #include "tjsDebug.h"
 
 #include "Application.h"
+#include "WinConsole.h"
 #include "FilePathUtil.h"
 #include "SysInitIntf.h"
 #include "SysInitImpl.h"
@@ -37,6 +38,10 @@
 #include "SystemImpl.h"
 #include "WaveImpl.h"
 #include "GraphicsLoadThread.h"
+#ifdef KRKRZ_USE_REPL
+#include "REPL.h"
+#include "tjsDebuggerCore.h"
+#endif
 #include "CharacterSet.h"
 #include "StorageCache.h"
 
@@ -425,9 +430,26 @@ bool tTVPApplication::StartApplication( int argc, tjs_char* argv[] ) {
 		image_load_thread_->StartThread();
 		file_cache_thread_->StartThread();
 
+#ifdef KRKRZ_ENABLE_DAP
+		// マルチフレーム stack trace のため、StackTracer をスクリプト起動より
+		// 前にセットアップしておく必要がある。
+		TVPCreateDAP();
+#endif
+
 		if(TVPProjectDirSelected) TVPInitializeStartupScript();
 
+#ifdef KRKRZ_USE_REPL
+		TVPCreateREPL();
+#endif
+
 		Run();
+
+#ifdef KRKRZ_USE_REPL
+		TVPDestroyREPL();
+#endif
+#ifdef KRKRZ_ENABLE_DAP
+		TVPDestroyDAP();
+#endif
 
 		try {
 			// image_load_thread_->ExitRequest();
@@ -506,44 +528,21 @@ tjs_string tTVPApplication::PluginPath()
 void tTVPApplication::CheckConsole() {
 #ifdef TVP_LOG_TO_COMMANDLINE_CONSOLE
 	if( has_map_report_process_ ) return; // 書き出し用子プロセスして起動されていた時はコンソール接続しない
-	HANDLE hin  = ::GetStdHandle(STD_INPUT_HANDLE);
-	HANDLE hout = ::GetStdHandle(STD_OUTPUT_HANDLE);
-	HANDLE herr = ::GetStdHandle(STD_ERROR_HANDLE);
+	// 元のコンソールタイトルを保存 (CloseConsole で戻すため)
+	wchar_t console[256] = {0};
+	::GetConsoleTitle( console, 256 );
+	console_title_ = tjs_string( (tjs_char*)console );
 
-	DWORD curProcId = ::GetCurrentProcessId();
-	DWORD processList[256];
-	DWORD count = ::GetConsoleProcessList( processList, 256 );
-	bool thisProcHasConsole = false;
-	for( DWORD i = 0; i < count; i++ ) {
-		if( processList[i] == curProcId ) {
-			thisProcHasConsole = true;
-			break;
-		}
-	}
-	bool attachedConsole = true;
-	if( thisProcHasConsole == false ) {
-		attachedConsole = ::AttachConsole(ATTACH_PARENT_PROCESS) != 0;
-	}
-
-	if( (hin==0||hout==0||herr==0) && attachedConsole ) {
-		wchar_t console[256];
-		::GetConsoleTitle( console, 256 );
-		console_title_ = tjs_string( (tjs_char*)console );
-		// 元のハンドルを再割り当て
-		if (hin)  ::SetStdHandle(STD_INPUT_HANDLE, hin);
-		if (hout) ::SetStdHandle(STD_OUTPUT_HANDLE, hout);
-		if (herr) ::SetStdHandle(STD_ERROR_HANDLE, herr);
-	}
-	is_attach_console_ = attachedConsole;
+	is_attach_console_ = TVPAttachWindowsConsole();
 #endif
 }
 
-void tTVPApplication::CloseConsole() 
+void tTVPApplication::CloseConsole()
 {
 	TVPLOG_INFO("CloseConsole:{}", TVPTerminateCode);
 	if( is_attach_console_ ) {
 		::SetConsoleTitle( (const wchar_t*) console_title_.c_str() );
-		::FreeConsole();
+		TVPDetachWindowsConsole();
 		is_attach_console_ = false;
 	}
 }
@@ -619,6 +618,13 @@ void tTVPApplication::ProcessMessages() {
 	while(ProcessMessage(msg));
 }
 void tTVPApplication::HandleMessage() {
+#ifdef KRKRZ_USE_REPL
+	// REPL ワーカーからのリクエストを 1 件ドレイン
+	TVPDrainREPL();
+#endif
+#ifdef KRKRZ_ENABLE_DAP
+	TVPDrainDAP();
+#endif
 	MSG msg = {0};
 	if( !ProcessMessage(msg) ) {
 		HandleIdle(msg);

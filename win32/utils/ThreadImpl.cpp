@@ -22,7 +22,7 @@ private:
 	tTVPThreadFunc func;
 	void *arg;
 	static std::vector<tjs_int> processor_ids;
-	static unsigned __stdcall tTVPNativeThread::ThreadFunc(void *arg);
+	static unsigned __stdcall ThreadFunc(void *arg);
 };
 
 std::vector<tjs_int> tTVPNativeThread::processor_ids;

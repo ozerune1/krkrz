@@ -44,7 +44,6 @@
 #include "ImageFunction.h"
 #include "BitmapIntf.h"
 #include "tjsScriptBlock.h"
-#include "ApplicationSpecialPath.h"
 #include "SystemImpl.h"
 #include "BitmapLayerTreeOwner.h"
 #include "Extension.h"
@@ -165,14 +164,12 @@ void TVPInitScriptEngine()
 	// system definition
 #ifdef __WINVER__
 	TVPScriptEngine->SetPPValue( TJS_W("windows"), 1 );
+	TVPScriptEngine->SetPPValue( TJS_W("kirikiriz_windows"), 1 );
 #endif
 
 #ifdef __GENERIC__
 	TVPScriptEngine->SetPPValue( TJS_W("generic"), 1 );
-#endif
-
-#ifdef ANDROID
-	TVPScriptEngine->SetPPValue( TJS_W("android"), 1 );
+	TVPScriptEngine->SetPPValue( TJS_W("kirikiriz_generic"), 1 );
 #endif
 
 	// set TJSGetRandomBits128
@@ -892,7 +889,7 @@ void TVPShowScriptException(eTJSScriptError &e)
 				tjs_string scriptPath( path.AsStdString() );
 				tjs_int lineno = 1+e.GetBlockNoAddRef()->SrcPosToLine(e.GetPosition() )- e.GetBlockNoAddRef()->GetLineOffset();
 
-#if defined(_WIN32) && defined(_DEBUG) && !defined(ENABLE_DEBUGGER)
+#if defined(_WIN32) && defined(_DEBUG)
 // デバッガ実行されている時、Visual Studio で行ジャンプする時の指定をデバッグ出力に出して、break で停止する
 				if( ::IsDebuggerPresent() ) {
 					tjs_string debuglile( tjs_string(TJS_W("2>"))+path.AsStdString()+TJS_W("(")+to_tjs_string(lineno)+TJS_W("): error :") + errstr.AsStdString() );
@@ -915,8 +912,8 @@ void TVPShowScriptException(eTJSScriptError &e)
 						ttstr arg(val);
 						if( !exepath.IsEmpty() && !arg.IsEmpty() ) {
 							tjs_string str( arg.AsStdString() );
-							str = ApplicationSpecialPath::ReplaceStringAll( str, tjs_string(TJS_W("%filepath%")), scriptPath );
-							str = ApplicationSpecialPath::ReplaceStringAll( str, tjs_string(TJS_W("%line%")), to_tjs_string(lineno) );
+							str = string_replace_all( str, tjs_string_view(TJS_W("%filepath%")), tjs_string_view(scriptPath.c_str()) );
+							str = string_replace_all( str, tjs_string_view(TJS_W("%line%")), tjs_string_view(to_tjs_string(lineno).c_str()) );
 							//exepath = exepath + ttstr(str);
 							//_wsystem( exepath.c_str() );
 							arg = ttstr(str);

@@ -343,6 +343,22 @@ bool TVPMoveFile(const ttstr &oldname, const ttstr &newname)
 }
 
 //---------------------------------------------------------------------------
+// TVPLastModifiedFileTime
+//---------------------------------------------------------------------------
+tjs_uint64 TVPLastModifiedFileTime(const ttstr &name)
+{
+	tjs_uint64 ret = 0;
+	struct __stat64 stbuf;
+	if(_wstat64( (const wchar_t*)name.c_str(), &stbuf) != 0 ) {
+		TVPThrowExceptionMessage(TVPSeekError);
+	}
+	ret = stbuf.st_mtime;
+	// FILETIME 互換に変換
+	ret += 11644473600LL; // 1970-01-01T00
+	return ret;
+}
+
+//---------------------------------------------------------------------------
 // TVPGetAppPath
 //---------------------------------------------------------------------------
 ttstr TVPGetAppPath()

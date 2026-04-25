@@ -20,11 +20,8 @@
 #include "tjsNative.h"
 #include "tjsArray.h"
 #include "tjsDebug.h"
+#include "tjsDebuggerHook.h"
 #include "tjsOctPack.h"
-
-#ifdef ENABLE_DEBUGGER
-#include "debugger.h"
-#endif // ENABLE_DEBUGGER
 
 namespace TJS
 {
@@ -832,10 +829,8 @@ void tTJSInterCodeContext::ExecuteAsFunction(iTJSDispatch2 *objthis,
 			Block->GetTJS()->GetConsoleOutput())
 			TJSWarnIfObjectIsDeleting(Block->GetTJS()->GetConsoleOutput(), objthis);
 
-#ifdef ENABLE_DEBUGGER
 		ScopeKey oldkey;
 		tTJSVariant* oldra = NULL;
-#endif	// ENABLE_DEBUGGER
 		try
 		{
 			ra[-1].SetObject(objthis, objthis);
@@ -885,8 +880,7 @@ void tTJSInterCodeContext::ExecuteAsFunction(iTJSDispatch2 *objthis,
 				}
 			}
 
-#ifdef ENABLE_DEBUGGER
-			if( TJSEnableDebugMode && ::IsDebuggerPresent() ) {
+			if( TVPDebuggerWantsHook() ) {
 				tjs_int ine_no = Block->SrcPosToLine( CodePosToSrcPos(start_ip) );
 				TJSDebuggerHook( DBGHOOK_PREV_CALL, Block->GetName(), ine_no );
 			}
@@ -894,17 +888,14 @@ void tTJSInterCodeContext::ExecuteAsFunction(iTJSDispatch2 *objthis,
 			oldra = DebuggerRegisterArea;
 			TJSDebuggerGetScopeKey( DebuggerScopeKey, GetClassName().c_str(), GetName(), Block->GetName(), start_ip );
 			DebuggerRegisterArea = ra;
-#endif	// ENABLE_DEBUGGER
 			// execute
 			ExecuteCode(ra, start_ip, args, numargs, result);
 		}
 		catch(...)
 		{
-#ifdef ENABLE_DEBUGGER
 			// 元に戻す
 			DebuggerScopeKey = oldkey;
 			DebuggerRegisterArea = oldra;
-#endif	// ENABLE_DEBUGGER
 #if 0
 			for(tjs_int i=0; i<num_alloc; i++) regs[i].Clear();
 #endif
@@ -914,11 +905,9 @@ void tTJSInterCodeContext::ExecuteAsFunction(iTJSDispatch2 *objthis,
 			throw;
 		}
 
-#ifdef ENABLE_DEBUGGER
 		// 元に戻す
 		DebuggerScopeKey = oldkey;
 		DebuggerRegisterArea = oldra;
-#endif	// ENABLE_DEBUGGER
 #if 0
 		for(tjs_int i=0; i<MaxVariableCount + VariableReserveCount; i++)
 			regs[i].Clear();
@@ -1028,24 +1017,17 @@ tjs_int tTJSInterCodeContext::ExecuteCode(tTJSVariant *ra_org, tjs_int startip,
 		tjs_int32 *code = codesave = CodeArea + startip;
 
 		if(TJSStackTracerEnabled()) TJSStackTracerSetCodePointer(CodeArea, &codesave);
-#ifdef ENABLE_DEBUGGER
-		bool is_enable_debugger = false;
-		if( TJSEnableDebugMode && ::IsDebuggerPresent() ) {
-			is_enable_debugger = true;
-		}
-#endif	// ENABLE_DEBUGGER
+		// debugger 有効状態を関数開始時に 1 度キャプチャ (内ループでの atomic load を避ける)
+		const bool is_enable_debugger = TVPDebuggerWantsHook();
 
 		tTJSVariant *ra = ra_org;
 		tTJSVariant *da = DataArea;
 
 		bool flag = false;
 
-#ifdef ENABLE_DEBUGGER
 		tjs_int cur_line_no = -1;
-#endif	// ENABLE_DEBUGGER
 		while(true)
 		{
-#ifdef ENABLE_DEBUGGER
 			if( is_enable_debugger ) {
 				tjs_int next_line_no = Block->SrcPosToLine( CodePosToSrcPos(code-CodeArea) );
 				if( cur_line_no != next_line_no ) {
@@ -1053,7 +1035,6 @@ tjs_int tTJSInterCodeContext::ExecuteCode(tTJSVariant *ra_org, tjs_int startip,
 					TJSDebuggerHook( DBGHOOK_PREV_EXE_LINE, Block->GetName(), cur_line_no, this );
 				}
 			}
-#endif	// ENABLE_DEBUGGER
 			codesave = code;
 			switch(*code)
 			{
@@ -1423,12 +1404,10 @@ tjs_int tTJSInterCodeContext::ExecuteCode(tTJSVariant *ra_org, tjs_int startip,
 				break;
 
 			case VM_RET:
-#ifdef ENABLE_DEBUGGER
 				if( is_enable_debugger ) {
 					TJSDebuggerHook( DBGHOOK_PREV_RETURN, Block->GetName(), cur_line_no, this );
 					cur_line_no = -1;
 				}
-#endif	// ENABLE_DEBUGGER
 				return (tjs_int)(code+1-CodeArea);
 
 			case VM_ENTRY:
@@ -1441,12 +1420,11 @@ tjs_int tTJSInterCodeContext::ExecuteCode(tTJSVariant *ra_org, tjs_int startip,
 				return (tjs_int)(code+1-CodeArea);  // same as ret
 
 			case VM_THROW:
-#ifdef ENABLE_DEBUGGER
 				if( is_enable_debugger ) {
-					TJSDebuggerHook( DBGHOOK_PREV_EXCEPT, Block->GetName(), cur_line_no, this );
+					tTJSVariant* exc_val = &TJS_GET_VM_REG(ra, code[1]);
+					TJSDebuggerHook( DBGHOOK_PREV_EXCEPT, Block->GetName(), cur_line_no, this, exc_val );
 					cur_line_no = -1;
 				}
-#endif	// ENABLE_DEBUGGER
 				ThrowScriptException(TJS_GET_VM_REG(ra, code[1]),
 					Block, CodePosToSrcPos((tjs_int)(code-CodeArea)));
 				code += 2; // actually here not proceed...
@@ -1474,14 +1452,13 @@ tjs_int tTJSInterCodeContext::ExecuteCode(tTJSVariant *ra_org, tjs_int startip,
 				break;
 
 			case VM_DEBUGGER:
-#ifdef ENABLE_DEBUGGER
 				if( is_enable_debugger ) {
 					TJSDebuggerHook( DBGHOOK_PREV_BREAK, Block->GetName(), cur_line_no, this );
 					cur_line_no = -1;
+				} else {
+					// debugger 未接続時はネイティブデバッガでの break を試みる
+					TJSNativeDebuggerBreak();
 				}
-#else	// ENABLE_DEBUGGER
-				TJSNativeDebuggerBreak();
-#endif	// ENABLE_DEBUGGER
 				code ++;
 				break;
 
@@ -1494,57 +1471,55 @@ tjs_int tTJSInterCodeContext::ExecuteCode(tTJSVariant *ra_org, tjs_int startip,
 	{
 		throw e;
 	}
-#ifdef ENABLE_DEBUGGER
-#define DEBUGGER_EXCEPTION_HOOK	if( TJSEnableDebugMode && ::IsDebuggerPresent() ) TJSDebuggerHook( DBGHOOK_PREV_EXCEPT, NULL, -1, this );
-#else	// ENABLE_DEBUGGER
-#define DEBUGGER_EXCEPTION_HOOK
-#endif	// ENABLE_DEBUGGER
+// exc は &tTJSVariant か NULL。eTJSScriptException catch では &e.GetValue() が
+// 渡せるが、それ以外の catch (eTJSScriptError 等) では NULL のまま。
+#define DEBUGGER_EXCEPTION_HOOK(exc) if( TVPDebuggerWantsHook() ) TJSDebuggerHook( DBGHOOK_PREV_EXCEPT, NULL, -1, this, exc );
 	catch(eTJSScriptException &e)
 	{
-		DEBUGGER_EXCEPTION_HOOK;
+		DEBUGGER_EXCEPTION_HOOK(&e.GetValue());
 		e.AddTrace(this, (tjs_int)(codesave-CodeArea));
 		throw e;
 	}
 	catch(eTJSScriptError &e)
 	{
-		DEBUGGER_EXCEPTION_HOOK;
+		DEBUGGER_EXCEPTION_HOOK(NULL);
 		e.AddTrace(this, (tjs_int)(codesave-CodeArea));
 		throw e;
 	}
 	catch(eTJS &e)
 	{
-		DEBUGGER_EXCEPTION_HOOK;
+		DEBUGGER_EXCEPTION_HOOK(NULL);
 		DisplayExceptionGeneratedCode((tjs_int)(codesave - CodeArea), ra_org);
 		TJS_eTJSScriptError(e.GetMessage(), this, (tjs_int)(codesave-CodeArea));
 	}
 	catch(std::exception &e)
 	{
-		DEBUGGER_EXCEPTION_HOOK;
+		DEBUGGER_EXCEPTION_HOOK(NULL);
 		DisplayExceptionGeneratedCode((tjs_int)(codesave - CodeArea), ra_org);
 		TJS_eTJSScriptError(e.what(), this, (tjs_int)(codesave-CodeArea));
 	}
 	catch(const tjs_char *text)
 	{
-		DEBUGGER_EXCEPTION_HOOK;
+		DEBUGGER_EXCEPTION_HOOK(NULL);
 		DisplayExceptionGeneratedCode((tjs_int)(codesave - CodeArea), ra_org);
 		TJS_eTJSScriptError(text, this, (tjs_int)(codesave-CodeArea));
 	}
 	catch(const char *text)
 	{
-		DEBUGGER_EXCEPTION_HOOK;
+		DEBUGGER_EXCEPTION_HOOK(NULL);
 		DisplayExceptionGeneratedCode((tjs_int)(codesave - CodeArea), ra_org);
 		TJS_eTJSScriptError(text, this, (tjs_int)(codesave-CodeArea));
 	}
 #ifdef TJS_SUPPORT_VCL
 	catch(const EAccessViolation &e)
 	{
-		DEBUGGER_EXCEPTION_HOOK;
+		DEBUGGER_EXCEPTION_HOOK(NULL);
 		DisplayExceptionGeneratedCode(codesave - CodeArea, ra_org);
 		TJS_eTJSScriptError(e.Message.c_str(), this, codesave-CodeArea);
 	}
 	catch(const Exception &e)
 	{
-		DEBUGGER_EXCEPTION_HOOK;
+		DEBUGGER_EXCEPTION_HOOK(NULL);
 		DisplayExceptionGeneratedCode(codesave - CodeArea, ra_org);
 		TJS_eTJSScriptError(e.Message.c_str(), this, codesave-CodeArea);
 	}

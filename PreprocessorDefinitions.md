@@ -17,9 +17,13 @@ Window.enableTouchをfalseとします。
 ### TJS\_64BIT\_OS
 64bit環境かどうかを切り分けるために内部で使用されています。
 
-### ENABLE_DEBUGGER
-デバッギ機能を持つかどうかを指定します。
-デバッガを使ってデバッグする時に有効にしてビルドします。
+### KRKRZ\_ENABLE\_DAP (Phase 2 以降で導入予定)
+VSCode Debug Adapter Protocol サーバを内蔵してビルドします。
+デフォルトは ON。`-dap=<port>` コマンドラインオプションでサーバを起動。
+
+旧 `ENABLE_DEBUGGER` (Win32 専用 `WM_COPYDATA` ベースの独自プロトコル) は
+2026-04-25 に廃止されました。代わりに上記 DAP 経由で VSCode から
+ブレークポイント・ステップ実行・変数 inspect が可能になります。
 
     // 以下未整理
     TJS_TEXT_OUT_CRLF

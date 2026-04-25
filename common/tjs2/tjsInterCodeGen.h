@@ -21,9 +21,7 @@
 #include "tjsError.h"
 #include "tjsObject.h"
 
-#ifdef ENABLE_DEBUGGER
-#include "tjsDebug.h"
-#endif // ENABLE_DEBUGGER
+#include "tjsDebug.h"  // ScopeKey 等
 
 
 namespace TJS
@@ -347,10 +345,9 @@ private:
 	tTJSInterCodeContext *PropGetter;
 	tTJSInterCodeContext *SuperClassGetter;
 
-#ifdef ENABLE_DEBUGGER
+	// for debugger (常時保持。未接続時は単に参照されないだけ)
 	ScopeKey		DebuggerScopeKey;		//!< for exec
 	tTJSVariant*	DebuggerRegisterArea;	//!< for exec
-#endif	// ENABLE_DEBUGGER
 
 public:
 	tTJSContextType GetContextType() const { return ContextType; }
@@ -361,14 +358,13 @@ public:
 
 	tTJSScriptBlock * GetBlock() const { return Block; }
 
-#ifdef ENABLE_DEBUGGER
+	// for debugger
 	ttstr GetClassName() const;
 	ttstr GetSelfClassName() const;
 
 	const ScopeKey& GetDebuggerScopeKey() { return DebuggerScopeKey; }
 	tTJSVariant* GetDebuggerRegisterArea() { return DebuggerRegisterArea; }
 	tTJSVariant* GetDebuggerDataArea() { return DataArea; }
-#endif	// ENABLE_DEBUGGER
 private:
 	void OutputWarning(const tjs_char *msg, tjs_int pos = -1);
 

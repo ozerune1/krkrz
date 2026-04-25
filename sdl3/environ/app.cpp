@@ -1,9 +1,48 @@
 #include "tjsCommHead.h"
+#include "tjsString.h"
 #include "CharacterSet.h"
 #include "StorageIntf.h"
 #include "LogIntf.h"
 #include "SysInitIntf.h"
 #include "app.h"
+
+#include <SDL3/SDL_platform_defines.h>
+
+#if defined(SDL_PLATFORM_WINDOWS)
+	#include <windows.h>
+#elif defined(SDL_PLATFORM_APPLE)
+	#include <sys/sysctl.h>
+#elif defined(SDL_PLATFORM_ANDROID) || defined(SDL_PLATFORM_LINUX)
+	#include <sys/utsname.h>
+#endif
+
+static const char *GetOSVersion()
+{
+	static thread_local char osVersionBuffer[256] = {};
+	#if defined(SDL_PLATFORM_WINDOWS)
+		OSVERSIONINFOEX osvi = {};
+		osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
+		if (GetVersionEx((OSVERSIONINFO*)&osvi)) {
+			snprintf(osVersionBuffer, sizeof(osVersionBuffer), "Windows %lu.%lu (Build %lu)",
+				osvi.dwMajorVersion, osvi.dwMinorVersion, osvi.dwBuildNumber);
+		}
+	#elif defined(SDL_PLATFORM_APPLE)
+		char version[256] = {};
+		size_t len = sizeof(version);
+		if (sysctlbyname("kern.osrelease", version, &len, NULL, 0) == 0) {
+			snprintf(osVersionBuffer, sizeof(osVersionBuffer), "macOS %s", version);
+		}
+	#elif defined(SDL_PLATFORM_ANDROID) || defined(SDL_PLATFORM_LINUX)
+		struct utsname buf = {};
+		if (uname(&buf) == 0) {
+			snprintf(osVersionBuffer, sizeof(osVersionBuffer), "Linux %s", buf.release);
+		}
+	#else
+		snprintf(osVersionBuffer, sizeof(osVersionBuffer), "%s", SDL_GetPlatform());
+	#endif
+
+	return osVersionBuffer;
+}
 
 
 SDL3Application::SDL3Application()
@@ -15,6 +54,13 @@ SDL3Application::SDL3Application()
 	_language = "ja";
 	_country = "jp";
 
+	// SDL規定
+	_ResourcePath = TJS_W("resource://./");
+
+	// platform 
+	TVPUtf8ToUtf16(_platformName, SDL_GetPlatform());
+	TVPUtf8ToUtf16(_osName, GetOSVersion());
+	
 #ifdef USE_SPLASHWINDOW
 	mSplashWindow = nullptr;
 	mSplashRenderer = nullptr;
@@ -192,7 +238,7 @@ SDL3Application::FreeLibrary( void* handle )
 	}
 }
 
-#ifdef _WIN32
+#if defined(SDL_PLATFORM_WINDOWS)
 #include <windows.h>
 long getAvailableMemory() {
     MEMORYSTATUSEX memInfo;
@@ -201,9 +247,8 @@ long getAvailableMemory() {
     return memInfo.ullTotalPhys;
 }
 
-#else
+#elif defined(sysconf) // LinuxやmacOSなどのUnix系
 #include <unistd.h>
-#ifdef sysconf
 long getAvailableMemory() {
     return sysconf(_SC_PHYS_PAGES) * sysconf(_SC_PAGE_SIZE);
 }
@@ -211,7 +256,6 @@ long getAvailableMemory() {
 long getAvailableMemory() {
     return 0;
 }
-#endif
 #endif
 
 tjs_uint64
@@ -258,12 +302,72 @@ SDL3Application::GetKirikiriStorage()
 	return mKirikiriStorage;
 }
 
+extern void InitStorageSystem(const char *orgname, const char *appname);
+
+#if defined(SDL_PLATFORM_WINDOWS)
+
+#include "ApplicationSpecialPath.h"
+#pragma comment(lib, "mpr.lib")
+#pragma comment(lib, "shlwapi.lib")
+static tjs_string GetDataPathDirectory( tjs_string datapath, const tjs_string& exename ) {
+	return ApplicationSpecialPath::GetDataPathDirectory(datapath, exename);
+}
+
+#else
+
+static tjs_string GetDataPathDirectory( tjs_string datapath, const tjs_string& exename ) {
+	if(datapath == TJS_W("") ) datapath = tjs_string(TJS_W("$(exepath)\\savedata"));
+	ttstr basepath = TVPExtractStoragePath(Application->ExePath());
+	tjs_string_view exepath  = tjs_string_view(basepath.c_str()); 
+	tjs_string_view userpath = tjs_string_view(TJS_W("user://./")); // SDLデフォルト
+	datapath = string_replace_all(datapath, tjs_string_view(TJS_W("$(exepath)")), exepath);
+	datapath = string_replace_all(datapath, tjs_string_view(TJS_W("$(personalpath)")), userpath);
+	datapath = string_replace_all(datapath, tjs_string_view(TJS_W("$(appdatapath)")), userpath);
+	datapath = string_replace_all(datapath, tjs_string_view(TJS_W("$(vistapath)")), userpath );
+	datapath = string_replace_all(datapath, tjs_string_view(TJS_W("$(savedgamespath)")), userpath);
+	return datapath;
+}
+
+#endif
+
+const tjs_string& 
+SDL3Application::InitDataPath()
+{
+	// user:// を初期化
+	std::string orgname = "wamsoft";
+    std::string appname = "krkrz";
+	tTJSVariant val;
+	if (TVPGetCommandLine(TJS_W("-orgname"), &val)) {
+		tjs_string orgname_str = val.GetString();
+		TVPUtf16ToUtf8(orgname, orgname_str.c_str());
+	}
+	if (TVPGetCommandLine(TJS_W("-appname"), &val)) {
+		tjs_string appname_str = val.GetString();
+		TVPUtf16ToUtf8(appname, appname_str.c_str());
+	}
+    InitStorageSystem(orgname.c_str(), appname.c_str());
+
+#if defined(SDL_PLATFORM_WINDOWS) || defined(SDL_PLATFORM_LINUX)
+	// -datapth オプションで保存先を差し替え・未定義時は実行ファイルの場所にある savedata
+	tjs_string config_datapath;
+	if (TVPGetCommandLine(TJS_W("-datapath"), &val)) {
+		config_datapath = ((ttstr)val).AsStdString();
+	}
+	_DataPath = GetDataPathDirectory(config_datapath, ExePath());
+#else
+	_DataPath = TJS_W("user://./");
+#endif
+
+	return _DataPath;
+}
+
 void 
 SDL3Application::OnInitialize(tTJS* scriptEngine)
 {
 	// 基底クラスの初期化
 	tTVPApplication::OnInitialize(scriptEngine);
 	scriptEngine->SetPPValue( TJS_W("sdl"), 1 );
+	scriptEngine->SetPPValue( TJS_W("kirikiriz_sdl"), 1 );
 }
 
 // SDL3 Kirikiri IOStream関連の実装

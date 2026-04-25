@@ -12,16 +12,15 @@
 #define tjsDebugH
 
 #include "tjsString.h"
+#include "tjsVariant.h"
 
-#ifdef ENABLE_DEBUGGER
 #include <list>
 #include <string>
-#endif // ENABLE_DEBUGGER
+#include <vector>
 
 namespace TJS
 {
 
-#ifdef ENABLE_DEBUGGER
 struct ScopeKey {
 	int ClassIndex;	//!< クラス名インデックス
 	int FuncIndex;	//!< 関数名インデックス
@@ -64,7 +63,6 @@ struct ScopeKey {
 		}
 	}
 };
-#endif // ENABLE_DEBUGGER
 
 //---------------------------------------------------------------------------
 // ObjectHashMap : hash map to track object construction/destruction
@@ -116,10 +114,14 @@ extern ttstr TJSGetStackTraceString(tjs_int limit = 0, const tjs_char *delimiter
 static inline bool TJSStackTracerEnabled() { return 0!=TJSStackTracer; }
 //---------------------------------------------------------------------------
 
-#ifdef ENABLE_DEBUGGER
-extern void TJSDebuggerHook( tjs_int evtype, const tjs_char *filename, tjs_int lineno, tTJSInterCodeContext* ctx = NULL );
+// Debugger hook (Phase 1: stub. tjsDebuggerHook.cpp で no-op 実装)
+// Phase 2 以降: DAP server の DebuggerCore に転送される。
+// exception パラメータは EXCEPT hook 時に投げられた値 (取れる場合)、それ以外 NULL。
+extern void TJSDebuggerHook( tjs_int evtype, const tjs_char *filename, tjs_int lineno, tTJSInterCodeContext* ctx = NULL, tTJSVariant* exception = NULL );
 extern void TJSDebuggerLog( const ttstr &line, bool impotant );
 
+// Debugger symbol tables (tjsDebuggerSymbols.cpp で実装)
+// コンパイル時に名前→id とローカル/クラス変数のレジスタ位置情報を蓄積する。
 extern void TJSDebuggerGetScopeKey( struct ScopeKey& scope,  const tjs_char* classname, const tjs_char* funcname, const tjs_char* filename, int codeoffset );
 extern void TJSDebuggerAddLocalVariable( const struct ScopeKey& key, const tjs_char* varname, int regaddr );
 extern void TJSDebuggerAddLocalVariable( const tjs_char* filename, const tjs_char* classname, const tjs_char* funcname, int codeoffset, const tjs_char* varname, int regaddr );
@@ -131,7 +133,24 @@ extern void TJSDebuggerClearLocalVariable( const tjs_char* classname, const tjs_
 extern void TJSDebuggerAddClassVariable( const tjs_char* classname, const tjs_char* varname, int regaddr );
 extern void TJSDebuggerGetClassVariableString( const tjs_char* classname, tTJSVariant* ra, tTJSVariant* da, std::list<tjs_string>& values );
 extern void TJSDebuggerClearLocalVariable( const tjs_char* classname );
-#endif	// ENABLE_DEBUGGER
+
+// variant ベース版 (Phase 5a 追加): 子オブジェクト展開のため値そのものを返す。
+struct TJSDebuggerVar {
+	tjs_string  name;
+	tTJSVariant value;
+};
+extern void TJSDebuggerGetLocalVariables( const struct ScopeKey& key, tTJSVariant* ra, std::vector<TJSDebuggerVar>& out );
+extern void TJSDebuggerGetClassVariables( const tjs_char* classname, tTJSVariant* ra, tTJSVariant* da, std::vector<TJSDebuggerVar>& out );
+
+// マルチフレーム stack trace 用 (Phase 5b 追加): StackTracer の Stack を
+// 構造化して返す。InTry frame (try/catch 実装上の人工 frame) はスキップ。
+struct TJSStackFrame {
+	tTJSInterCodeContext* ctx;       //!< scope/variable 引きに使う
+	tjs_string            filename;  //!< Block->GetName() (TJS 内部パス)
+	tjs_string            funcname;  //!< "ClassName.funcName" / "funcName" / "(top)"
+	int                   line;      //!< 1-based source line, -1 if unknown
+};
+extern void TJSGetStackTraceFrames( std::vector<TJSStackFrame>& out );
 
 } // namespace TJS
 

@@ -4,26 +4,36 @@
 
 #include <plog/Log.h>
 #include <plog/Init.h>
-#include <plog/Formatters/TxtFormatter.h>
+#include <plog/Formatters/MessageOnlyFormatter.h>
+#include <plog/Appenders/IAppender.h>
+#include <plog/Util.h>
 
+//---------------------------------------------------------------------------
 // TJSログレベルから plog のログレベルに変換する関数
-static plog::Severity TVPLogLevelToPlogSeverity(TVPLogLevel logLevel) 
+//---------------------------------------------------------------------------
+static plog::Severity TVPLogLevelToPlogSeverity(TVPLogLevel logLevel)
 {
     switch (logLevel) {
-        case TVPLOG_LEVEL_VERBOSE:
-            return plog::verbose;
-        case TVPLOG_LEVEL_DEBUG:
-            return plog::debug;
-        case TVPLOG_LEVEL_INFO:
-            return plog::info;
-        case TVPLOG_LEVEL_WARNING:
-            return plog::warning;
-        case TVPLOG_LEVEL_ERROR:
-            return plog::error;
-        case TVPLOG_LEVEL_CRITICAL:
-            return plog::fatal;
-        default:
-            return plog::none;
+        case TVPLOG_LEVEL_VERBOSE:  return plog::verbose;
+        case TVPLOG_LEVEL_DEBUG:    return plog::debug;
+        case TVPLOG_LEVEL_INFO:     return plog::info;
+        case TVPLOG_LEVEL_WARNING:  return plog::warning;
+        case TVPLOG_LEVEL_ERROR:    return plog::error;
+        case TVPLOG_LEVEL_CRITICAL: return plog::fatal;
+        default:                    return plog::none;
+    }
+}
+
+static TVPLogLevel TVPPlogSeverityToLogLevel(plog::Severity s)
+{
+    switch (s) {
+        case plog::verbose: return TVPLOG_LEVEL_VERBOSE;
+        case plog::debug:   return TVPLOG_LEVEL_DEBUG;
+        case plog::info:    return TVPLOG_LEVEL_INFO;
+        case plog::warning: return TVPLOG_LEVEL_WARNING;
+        case plog::error:   return TVPLOG_LEVEL_ERROR;
+        case plog::fatal:   return TVPLOG_LEVEL_CRITICAL;
+        default:            return TVPLOG_LEVEL_OFF;
     }
 }
 
@@ -32,22 +42,21 @@ void TVPLogSetLevel(TVPLogLevel logLevel)
     auto logger = plog::get();
     if (logger) {
         logger->setMaxSeverity(TVPLogLevelToPlogSeverity(logLevel));
-    }   
+    }
 }
 
-void TVPLog(TVPLogLevel logLevel, const char *file, int line, const char *func, const char *format, fmt::format_args args)
+void TVPLog(TVPLogLevel logLevel, const char *file, int line, const char *func, const char *format, tvpfmt::format_args args)
 {
     auto logger = plog::get();
     if (logger) {
         plog::Record record(TVPLogLevelToPlogSeverity(logLevel), func, line, file, 0, 0);
         std::string msg;
         try {
-            // fmt::vformat は例外を投げる可能性があるので、try-catchで囲む
-            msg = fmt::vformat(format, args);
-        } catch (const fmt::format_error& e) {
+            msg = tvpfmt::vformat(format, args);
+        } catch (const tvpfmt::format_error& e) {
             msg = "Log Format error: " + std::string(e.what());
         }
-        record << fmt::vformat(format, args);
+        record << msg;
         logger->write(record.ref());
     }
 }
@@ -62,65 +71,39 @@ void TVPLogMsg(TVPLogLevel logLevel, const char *msg)
     }
 }
 
-#ifdef _WIN32
-
 //---------------------------------------------------------------------------
-// plog の標準の ConsoleAdapter は msys で問題があるので別実装
+// TVPDispatchAppender
+//
+// plog で整形された本文 (タイムスタンプ無し、MessageOnlyFormatter) を
+// UTF-8 化して LogCore の TVPLogDispatchLine に引き渡す。以降の
+// コンソール/ファイル/キャッシュ/sink は LogCore が面倒を見る。
 //---------------------------------------------------------------------------
-
-#include <plog/Appenders/IAppender.h>
-#include <plog/Util.h>
-#include <plog/WinApi.h>
-
-class WinConsoleAppender : public plog::IAppender
+class TVPDispatchAppender : public plog::IAppender
 {
 public:
-    WinConsoleAppender() {}
-
     virtual void write(const plog::Record& record) override
     {
-        plog::util::nstring str = plog::TxtFormatter::format(record);
+        plog::util::nstring str = plog::MessageOnlyFormatter::format(record);
         plog::util::MutexLock lock(m_mutex);
 
+#ifdef _WIN32
         const std::wstring& wstr = plog::util::toWide(str);
-        const tjs_char *mes = (tjs_char*)wstr.c_str();
-        tjs_int len = wstr.size();
-
-        HANDLE hStdOutput = ::GetStdHandle(STD_OUTPUT_HANDLE);
-        if (hStdOutput != INVALID_HANDLE_VALUE) {
-            DWORD mode;
-            if (GetConsoleMode(hStdOutput, &mode)) {
-                ::WriteConsoleW(hStdOutput, mes, len, NULL, NULL);        
-            } else {
-                // その他のハンドル, UTF-8で出力
-                static std::vector<char> console_cache_(200);
-                tjs_int u8len = TVPWideCharToUtf8String( mes, len, nullptr );
-                if (console_cache_.size() < u8len ) {
-                    console_cache_.resize(u8len);
-                }
-                TVPWideCharToUtf8String( mes, len, &(console_cache_[0]) );
-                ::WriteFile( hStdOutput, &(console_cache_[0]), u8len, NULL, NULL );
-            }
-        }
+        std::string utf8;
+        TVPUtf16ToUtf8(utf8, (const tjs_char*)wstr.c_str());
+#else
+        std::string utf8 = str;
+#endif
+        // 末尾の改行は LogCore 側で処理されるので剥がしてもしなくても良い
+        while (!utf8.empty() && (utf8.back() == '\n' || utf8.back() == '\r'))
+            utf8.pop_back();
+        TVPLogDispatchLine(TVPPlogSeverityToLogLevel(record.getSeverity()), utf8.c_str());
     }
 protected:
     plog::util::Mutex m_mutex;
 };
 
-void TVPLogInit(TVPLogLevel logLevel) 
+void TVPLogInit(TVPLogLevel logLevel)
 {
-    static WinConsoleAppender consoleAppender;
-    plog::init(TVPLogLevelToPlogSeverity(logLevel), &consoleAppender);
+    static TVPDispatchAppender dispatchAppender;
+    plog::init(TVPLogLevelToPlogSeverity(logLevel), &dispatchAppender);
 }
-
-#else
-
-#include <plog/Appenders/ColorConsoleAppender.h>
-void TVPLogInit(TVPLogLevel logLevel) 
-{
-    // コンソールアペンダーを初期化
-    static plog::ColorConsoleAppender<plog::TxtFormatter> consoleAppender(plog::streamStdErr);
-    plog::init(TVPLogLevelToPlogSeverity(logLevel), &consoleAppender);
-}
-
-#endif

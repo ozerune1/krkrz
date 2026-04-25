@@ -16,7 +16,6 @@
     "libwebm",
     "miniaudio",
     "plog",
-    "fmt",
     {
       "name": "freetype",
       "features": [

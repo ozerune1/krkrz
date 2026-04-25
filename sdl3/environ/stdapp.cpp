@@ -88,23 +88,20 @@ bool MySDL3Application::InitPath()
 	std::string projectPath;
 	if (_nargs.size() > 1) {
 		std::filesystem::path p(_nargs[1].c_str());
+		// C++20 以降 std::filesystem::path::u8string() は std::u8string を返すため
+		// std::string にそのまま代入・連結できない。バイト列は UTF-8 のまま
+		// reinterpret して std::string 化する。
+		auto u8 = p.u8string();
+		std::string pathU8(reinterpret_cast<const char*>(u8.c_str()), u8.size());
 		if (p.is_relative()) {
 			projectPath = appPath;
-			projectPath += p.u8string();
+			projectPath += pathU8;
 		} else {
-			projectPath = p.u8string();
+			projectPath = std::move(pathU8);
 		}
 		checkLastDelimiter(projectPath, delimiter);
 	} else {
-		if (IsExistent("resource://./data.xp3")) {
-			// resource://./data.xp3 が存在する場合はそれを優先
-			projectPath = "resource://./data.xp3>";
-			TVPLOG_INFO("resource://./data.xp3 found, using as project path");
-		} else if (IsExistent("resource://./data/startup.tjs")) {
-			// resource://./data/startup.tjs が存在する場合はそれを優先
-			projectPath = "resource://./data/";
-			TVPLOG_INFO("resource://./data/startup.tjs found, using resource data/ as project path");
-		} else if (IsExistent((appPath + "data.xp3").c_str())) {
+		if (IsExistent((appPath + "data.xp3").c_str())) {
 			projectPath = appPath + "data.xp3>";
 			TVPLOG_INFO("data.xp3 found, using as project path");
 		} else if (IsExistent((appPath + "data/startup.tjs").c_str())) {
@@ -131,19 +128,15 @@ bool MySDL3Application::InitPath()
 
 	/// XXX
 	_ExePath = _AppPath + TJS_W("krkrz.exe");
-#ifdef __APPLE__
+#if defined(SDL_PLATFORM_APPLE)
 	_PluginPath = _AppPath;
 #elif defined(TJS_64BIT_OS)
 	_PluginPath = _AppPath + TJS_W("plugin64/");;
 #else
 	_PluginPath = _AppPath + TJS_W("plugin/");
 #endif
-	// SDL: storage.cpp でマウントされた user: を参照
-	_DataPath = TJS_W("user://./");
-	_LogPath = _DataPath;
-	_ResourcePath = TJS_W("resource://./");
 
-#ifdef _WIN32
+#if defined(SDL_PLATFORM_WINDOWS)
 	::SetDllDirectory((wchar_t*)PluginPath().c_str());
 #endif
 
@@ -156,13 +149,10 @@ const tjs_string& MySDL3Application::TempPath() const
     static tjs_string _TempPath;
     if (!inited) {
         inited = true;
-        // テンポラリフォルダのパス
-        std::string tempPath = std::filesystem::temp_directory_path().u8string();
-    #ifdef _WIN32
-        tempPath += "\\";
-    #else
-        tempPath += "/";
-    #endif
+        // テンポラリフォルダのパス・標準関数
+        auto tempU8 = std::filesystem::temp_directory_path().u8string();
+        std::string tempPath(reinterpret_cast<const char*>(tempU8.c_str()), tempU8.size());
+		tempPath += std::filesystem::path::preferred_separator;
         TVPUtf8ToUtf16(_TempPath, tempPath);
     }
     return _TempPath;
@@ -214,7 +204,7 @@ bool SDL_NormalizeStorageName(tjs_string &name)
 
 	// Check if path is absolute (simple check without std::filesystem)
 	bool is_absolute = false;
-	#ifdef _WIN32
+	#if defined(SDL_PLATFORM_WINDOWS)		
 		// Windows: check for drive letter (C:) or UNC path (\\)
 		if (namelen >= 2) {
 			if ((name[1] == TJS_W(':')) || 
@@ -241,7 +231,7 @@ bool SDL_NormalizeStorageName(tjs_string &name)
 
 void SDL_GetLocallyAccessibleName(tjs_string &name)
 {
-#ifdef _WIN32
+#if defined(SDL_PLATFORM_WINDOWS)
 	const tjs_char *ptr = name.c_str();
 	tjs_string newname;
 

@@ -3,6 +3,11 @@
 #include "LogIntf.h"
 #include "SysInitIntf.h"
 #include "SystemIntf.h"
+#ifdef KRKRZ_USE_REPL
+#include "REPL.h"
+#include "tjsDebuggerCore.h"
+#endif
+#include "WinConsole.h"
 #include "app.h"
 
 #define SDL_MAIN_USE_CALLBACKS
@@ -162,11 +167,15 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event)
 extern void InitAudioSystem();
 extern void DoneAudioSystem();
 
-extern void InitStorageSystem(const char *orgname, const char *appname);
 extern void DoneStorageSystem();
 
 SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
 {
+    // Windows で GUI サブシステム化した場合、親シェルのコンソールに attach して
+    // stdout/stderr (ログ出力) と REPL の stdin を可視化する。
+    // 非 Windows / 既にコンソールを持っている場合は no-op。
+    TVPAttachWindowsConsole();
+
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD | SDL_INIT_AUDIO)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return SDL_APP_FAILURE;
@@ -218,11 +227,6 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
 #endif
     TVPStartup();
 
-    // XXX リソースから参照する別インターフェース検討
-    const char *orgname = "libsdl";
-    const char *appname = "krkrz";
-    InitStorageSystem(orgname, appname);
-
     SDL3Application *app = GetSDL3Application();
     app->SetTitle(TJS_W("krkrz"));
 	app->InitArgs(argc, argv);
@@ -230,7 +234,6 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
     if (!app->InitPath()) {
         TVPLOG_ERROR("Failed to initialize paths");
         delete app;
-        DoneStorageSystem();
         return SDL_APP_FAILURE;
     }
 
@@ -243,7 +246,6 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
 		TVPLOG_ERROR("failed to initialize application");
         delete app;
         DoneAudioSystem();
-        DoneStorageSystem();
         return SDL_APP_FAILURE;
 	}
 
@@ -251,8 +253,22 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[])
 	// 内蔵化プラグイン初期化
 	plugins_init();
 #endif
+
+#ifdef KRKRZ_ENABLE_DAP
+	// DAP server 起動 (-dap=<port> 指定時のみ)。
+	// マルチフレーム stack trace のため、StackTracer をスクリプト起動より
+	// 前にセットアップしておく必要がある (起動後だと最初の関数呼び出し
+	// frame が記録されない)。
+	TVPCreateDAP();
+#endif
+
 	// スクリプト起動開始
 	app->Startup();
+
+#ifdef KRKRZ_USE_REPL
+	// REPL thread 起動 (TTY 有効時または -repl 指定時のみ)
+	TVPCreateREPL();
+#endif
 
     app->AppInitDone();
     app->OnTerminatingStart();
@@ -268,18 +284,36 @@ void SDL_AppQuit(void *appstate, SDL_AppResult result)
         joystick = NULL;
     }
 
+#ifdef KRKRZ_USE_REPL
+    TVPDestroyREPL();
+#endif
+#ifdef KRKRZ_ENABLE_DAP
+    TVPDestroyDAP();
+#endif
+
     SDL3Application *app = static_cast<SDL3Application *>(appstate);
     if (app) {
         TVPSystemUninit();
-        DoneAudioSystem();
-        DoneStorageSystem();
         app->AppQuit();
         delete app;
     }
+
+    DoneAudioSystem();
+    DoneStorageSystem();
+
+    TVPDetachWindowsConsole();
 }
 
-SDL_AppResult SDL_AppIterate(void *appstate) 
+SDL_AppResult SDL_AppIterate(void *appstate)
 {
+#ifdef KRKRZ_USE_REPL
+    // REPL ワーカーからのリクエストを 1 件ドレインしてから通常処理へ
+    TVPDrainREPL();
+#endif
+#ifdef KRKRZ_ENABLE_DAP
+    TVPDrainDAP();
+#endif
+
     SDL3Application *app = static_cast<SDL3Application *>(appstate);
     if (app) {
         app->AppIterate();

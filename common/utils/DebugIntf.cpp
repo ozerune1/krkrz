@@ -20,648 +20,250 @@
 #include "StorageIntf.h"
 #include "SysInitIntf.h"
 #include "SysInitImpl.h"
-#ifdef ENABLE_DEBUGGER
 #include "tjsDebug.h"
-#endif // ENABLE_DEBUGGER
 
 #include "Application.h"
 #include "NativeFile.h"
-//---------------------------------------------------------------------------
-// global variables
-//---------------------------------------------------------------------------
-struct tTVPLogItem
-{
-	ttstr Log;
-	ttstr Time;
-	tTVPLogItem(const ttstr &log, const ttstr &time)
-	{
-		Log = log;
-		Time = time;
-	}
-};
-static std::deque<tTVPLogItem> *TVPLogDeque = NULL;
-static tjs_uint TVPLogMaxLines = 2048;
-
-bool TVPAutoLogToFileOnError = true;
-bool TVPAutoClearLogOnError = false;
-bool TVPLoggingToFile = false;
-static tjs_uint TVPLogToFileRollBack = 100;
-static ttstr *TVPImportantLogs = NULL;
-static ttstr TVPLogLocation;
-tjs_char TVPNativeLogLocation[MAX_PATH];
-//---------------------------------------------------------------------------
-
 
 //---------------------------------------------------------------------------
-static bool TVPLogObjectsInitialized = false;
-static void TVPEnsureLogObjects()
-{
-	if(TVPLogObjectsInitialized) return;
-	TVPLogObjectsInitialized = true;
-
-	TVPLogDeque = new std::deque<tTVPLogItem>();
-	TVPImportantLogs = new ttstr();
-}
+// LogCore 側で保持している状態の extern 参照
 //---------------------------------------------------------------------------
-static void TVPDestroyLogObjects()
-{
-	if(TVPLogDeque) delete TVPLogDeque, TVPLogDeque = NULL;
-	if(TVPImportantLogs) delete TVPImportantLogs, TVPImportantLogs = NULL;
-}
-//---------------------------------------------------------------------------
-tTVPAtExit TVPDestroyLogObjectsAtExit
-	(TVP_ATEXIT_PRI_CLEANUP, TVPDestroyLogObjects);
-//---------------------------------------------------------------------------
+extern tjs_uint TVPLogMaxLines;
+extern ttstr    TVPLogLocation;
 
-
-
+#include "tjsUtils.h"
 
 //---------------------------------------------------------------------------
-void (*TVPOnLog)(const ttstr & line) = NULL;
-	// this function is invoked when a line is logged
+// NOTE: ログ関連状態 (リングバッファ、ファイル出力、important cache、
+//       handler 列、TVPAddLog / TVPAddImportantLog / TVPGetLastLog /
+//       TVPGetImportantLog / TVPStartLogToFile / TVPSetLogLocation /
+//       TVPOnError) は common/utils/LogCore.cpp に移動した。
 //---------------------------------------------------------------------------
 
-
-
-//---------------------------------------------------------------------------
-// TVPSetOnLog
-//---------------------------------------------------------------------------
-void TVPSetOnLog(void (*func)(const ttstr & line))
-{
-	TVPOnLog = func;
-}
-//---------------------------------------------------------------------------
-static std::vector<tTJSVariantClosure> TVPLoggingHandlerVector;
-
-static void TVPCleanupLoggingHandlerVector()
-{
-	// eliminate empty
-	std::vector<tTJSVariantClosure>::iterator i;
-	for(i = TVPLoggingHandlerVector.begin();
-		i != TVPLoggingHandlerVector.end();
-		i++)
-	{
-		if(!i->Object)
-		{
-			i->Release();
-			i = TVPLoggingHandlerVector.erase(i);
-		}
-		else
-		{
-			i++;
-		}
-	}
-}
-static void TVPDestroyLoggingHandlerVector()
-{
-	TVPSetOnLog(NULL);
-	std::vector<tTJSVariantClosure>::iterator i;
-	for(i = TVPLoggingHandlerVector.begin();
-		i != TVPLoggingHandlerVector.end();
-		i++)
-	{
-		i->Release();
-	}
-	TVPLoggingHandlerVector.clear();
-}
-
-static tTVPAtExit TVPDestroyLoggingHandlerAtExit
-	(TVP_ATEXIT_PRI_PREPARE, TVPDestroyLoggingHandlerVector);
-//---------------------------------------------------------------------------
-static bool TVPInDeliverLoggingEvent = false;
-static void _TVPDeliverLoggingEvent(const ttstr & line) // internal
-{
-	if(!TVPInDeliverLoggingEvent)
-	{
-		TVPInDeliverLoggingEvent = true;
-		try
-		{
-			if(TVPLoggingHandlerVector.size())
-			{
-				bool emptyflag = false;
-				tTJSVariant vline(line);
-				tTJSVariant *pvline[] = { &vline };
-				for(tjs_uint i = 0; i < TVPLoggingHandlerVector.size(); i++)
-				{
-					if(TVPLoggingHandlerVector[i].Object)
-					{
-						tjs_error er;
-						try
-						{
-							er =
-								TVPLoggingHandlerVector[i].FuncCall(0, NULL, NULL, NULL, 1, pvline, NULL);
-						}
-						catch(...)
-						{
-							// failed
-							TVPLoggingHandlerVector[i].Release();
-							TVPLoggingHandlerVector[i].Object =
-							TVPLoggingHandlerVector[i].ObjThis = NULL;
-							throw;
-						}
-						if(TJS_FAILED(er))
-						{
-							// failed
-							TVPLoggingHandlerVector[i].Release();
-							TVPLoggingHandlerVector[i].Object =
-							TVPLoggingHandlerVector[i].ObjThis = NULL;
-							emptyflag = true;
-						}
-					}
-					else
-					{
-						emptyflag = true;
-					}
-				}
-
-				if(emptyflag)
-				{
-					// the array has empty cell
-					TVPCleanupLoggingHandlerVector();
-				}
-			}
-
-			if(!TVPLoggingHandlerVector.size())
-			{
-				TVPSetOnLog(NULL);
-			}
-		}
-		catch(...)
-		{
-			TVPInDeliverLoggingEvent = false;
-			throw;
-		}
-		TVPInDeliverLoggingEvent = false;
-	}
-}
-//---------------------------------------------------------------------------
-static void TVPAddLoggingHandler(tTJSVariantClosure clo)
-{
-	std::vector<tTJSVariantClosure>::iterator i;
-	i = std::find(TVPLoggingHandlerVector.begin(),
-		TVPLoggingHandlerVector.end(), clo);
-	if(i == TVPLoggingHandlerVector.end())
-	{
-		clo.AddRef();
-		TVPLoggingHandlerVector.push_back(clo);
-		TVPSetOnLog(&_TVPDeliverLoggingEvent);
-	}
-}
-//---------------------------------------------------------------------------
-static void TVPRemoveLoggingHandler(tTJSVariantClosure clo)
-{
-	std::vector<tTJSVariantClosure>::iterator i;
-	i = std::find(TVPLoggingHandlerVector.begin(),
-		TVPLoggingHandlerVector.end(), clo);
-	if(i != TVPLoggingHandlerVector.end())
-	{
-		i->Release();
-		i->Object = i->ObjThis = NULL;
-	}
-
-	if(!TVPInDeliverLoggingEvent)
-	{
-		TVPCleanupLoggingHandlerVector();
-		if(!TVPLoggingHandlerVector.size())
-		{
-			TVPSetOnLog(NULL);
-		}
-	}
-}
-//---------------------------------------------------------------------------
-
-
-
-//---------------------------------------------------------------------------
-// log stream holder
-//---------------------------------------------------------------------------
-class tTVPLogStreamHolder
-{
-	NativeFile Stream;
-	bool Alive;
-	bool OpenFailed;
-
-public:
-	tTVPLogStreamHolder() { Alive = true; OpenFailed = false; }
-	~tTVPLogStreamHolder() { Stream.Close(); Alive = false; }
-
-private:
-	void Open(const tjs_char *mode);
-
-public:
-	void Clear(); // clear log stream
-	void Log(const ttstr & text); // log given text
-
-	void Reopen() { Stream.Close(); Alive = false; OpenFailed = false; } // reopen log stream
-
-} static TVPLogStreamHolder;
-//---------------------------------------------------------------------------
-static const tjs_char *WDAY[] = {
-		TJS_W("Sunday"), TJS_W("Monday"), TJS_W("Tuesday"), TJS_W("Wednesday"),
-		TJS_W("Thursday"), TJS_W("Friday"), TJS_W("Saturday")
-};
-//---------------------------------------------------------------------------
-static const tjs_char *MDAY[] = {
-		TJS_W("January"), TJS_W("February"), TJS_W("March"), TJS_W("April"), TJS_W("May"), TJS_W("June"),
-		TJS_W("July"), TJS_W("August"), TJS_W("September"), TJS_W("October"), TJS_W("November"),
-		TJS_W("December")
-};
-//---------------------------------------------------------------------------
-void tTVPLogStreamHolder::Open(const tjs_char *mode)
-{
-	if(OpenFailed) return; // no more try
-
-	try
-	{
-		tjs_char filename[MAX_PATH];
-		if(TVPLogLocation.IsEmpty())
-		{
-			Stream.Close();
-			OpenFailed = true;
-		}
-		else
-		{
-			// no log location specified
-			TJS_strcpy(filename, TVPNativeLogLocation);
-			TJS_strcat(filename, TJS_W("\\krkr.console.log"));
-			TVPEnsureDataPathDirectory();
-			Stream.Open( filename, mode );
-			if(!Stream.IsOpen()) OpenFailed = true;
-		}
-
-		if(Stream.IsOpen())
-		{
-			Stream.Seek(0, SEEK_END);
-			if(Stream.Tell() == 0)
-			{
-				// write BOM
-				Stream.Write( TJS_N("\xff\xfe"), 2 ); // indicate unicode text
-			}
-
-#ifdef TJS_TEXT_OUT_CRLF
-			ttstr separator( TVPSeparatorCRLF );
-#else
-			ttstr separator( TVPSeparatorCR );
-#endif
-			Log(separator);
-
-
-			static tjs_char timebuf[80];
-			{
-				time_t timer;
-				timer = time(&timer);
-				tm* t = localtime(&timer);
-				TJS_snprintf( timebuf, 79, TJS_W("%s, %s %02d, %04d %02d:%02d:%02d"), WDAY[t->tm_wday], MDAY[t->tm_mon], t->tm_mday, t->tm_year+1900, t->tm_hour, t->tm_min, t->tm_sec );
-			}
-
-			Log(ttstr(TJS_W("Logging to ")) + ttstr(filename) + TJS_W(" started on ") + timebuf);
-
-		}
-	}
-	catch(...)
-	{
-		OpenFailed = true;
-	}
-}
-//---------------------------------------------------------------------------
-void tTVPLogStreamHolder::Clear()
-{
-	// clear log text
-	Stream.Close();
-
-	Open(TJS_W("wb"));
-}
-//---------------------------------------------------------------------------
-void tTVPLogStreamHolder::Log(const ttstr & text)
-{
-	if(!Stream.IsOpen()) Open(TJS_W("ab"));
-
-	try
-	{
-		if(Stream.IsOpen())
-		{
-			size_t len = text.GetLen() * sizeof(tjs_char);
-			if( len != Stream.Write( text.c_str(), len) )
-			{
-				// cannot write
-				Stream.Close();
-				OpenFailed = true;
-				return;
-			}
-#ifdef TJS_TEXT_OUT_CRLF
-			Stream.Write(TJS_W("\r\n"), 2 * sizeof(tjs_char) );
-#else
-			Stream.Write(TJS_W("\n"), 1 * sizeof(tjs_char) );
-#endif
-
-			// flush
-			Stream.Flush();
-		}
-	}
-	catch(...)
-	{
-		try
-		{
-			Stream.Close();
-		}
-		catch(...)
-		{
-		}
-
-		OpenFailed = true;
-	}
-}
-//---------------------------------------------------------------------------
-
-
-
-
-
-
-
-//---------------------------------------------------------------------------
-// TVPAddLog
-//---------------------------------------------------------------------------
-void TVPAddLog(const ttstr &line, bool appendtoimportant)
-{
-	// add a line to the log.
-	// exceeded lines over TVPLogMaxLines are eliminated.
-	// this function is not thread-safe ...
-
-	TVPEnsureLogObjects();
-	if(!TVPLogDeque) return; // log system is shuttingdown
-	if(!TVPImportantLogs) return; // log system is shuttingdown
-
-	static time_t prevlogtime = 0;
-	static ttstr prevtimebuf;
-	static tjs_char timebuf[40];
-
-	tm *struct_tm;
-	time_t timer;
-	timer = time(&timer);
-
-	if(prevlogtime != timer)
-	{
-		struct_tm = localtime(&timer);
-		TJS_snprintf( timebuf, 39, TJS_W("%02d:%02d:%02d"), struct_tm->tm_hour, struct_tm->tm_min, struct_tm->tm_sec );
-		prevlogtime = timer;
-		prevtimebuf = timebuf;
-	}
-
-	TVPLogDeque->push_back(tTVPLogItem(line, prevtimebuf));
-
-	if(appendtoimportant)
-	{
-#ifdef TJS_TEXT_OUT_CRLF
-		*TVPImportantLogs += ttstr(timebuf) + TJS_W(" ! ") + line + TJS_W("\r\n");
-#else
-		*TVPImportantLogs += ttstr(timebuf) + TJS_W(" ! ") + line + TJS_W("\n");
-#endif
-	}
-	while(TVPLogDeque->size() >= TVPLogMaxLines+100)
-	{
-		std::deque<tTVPLogItem>::iterator i = TVPLogDeque->begin();
-		TVPLogDeque->erase(i, i+100);
-	}
-
-#ifdef ENABLE_DEBUGGER
-	if (TVPOnLog || TVPLoggingToFile || TJSEnableDebugMode)
-#else
-	if (TVPOnLog || TVPLoggingToFile)
-#endif
-	{
-		tjs_int timebuflen = (tjs_int)TJS_strlen(timebuf);
-		ttstr buf((tTJSStringBufferLength)(timebuflen + 1 + line.GetLen()));
-		tjs_char * p = buf.Independ();
-		TJS_strcpy(p, timebuf);
-		p += timebuflen;
-		*p = TJS_W(' ');
-		p++;
-		TJS_strcpy(p, line.c_str());
-
-		if(TVPOnLog) TVPOnLog(buf);
-
-		if (TVPLoggingToFile) TVPLogStreamHolder.Log(buf);
-
-#ifdef ENABLE_DEBUGGER
-		if( TJSEnableDebugMode ) TJSDebuggerLog(buf,appendtoimportant);
-		//OutputDebugStringW( buf.c_str() );
-		//OutputDebugStringW( TJS_W("\n") );
-#endif	// ENABLE_DEBUGGER
-	}
-
-#ifdef TVP_LOG_TO_COMMANDLINE_CONSOLE
-	{
-		// その他のハンドル, UTF-8で出力
-		static std::vector<char> console_cache_(200);
-		int len = line.length();
-		tjs_int u8len = TVPWideCharToUtf8String(line.c_str(), len, nullptr ) + 1;
-		if (console_cache_.size() < u8len ) {
-			console_cache_.resize(u8len);
-		}
-		char *buf = &console_cache_[0];
-		u8len = TVPWideCharToUtf8String(line.c_str(), len, buf );
-		buf[u8len] = 0; // null-terminate
-		if (appendtoimportant) {
-			TVPLogMsg(TVPLOG_LEVEL_WARNING, buf);
-		} else {
-			TVPLogMsg(TVPLOG_LEVEL_INFO, buf);
-		}
-	}
-#endif
-
-}
-//---------------------------------------------------------------------------
-void TVPAddLog(const ttstr &line)
-{
-	TVPAddLog(line, false);
-}
-//---------------------------------------------------------------------------
-void TVPAddImportantLog(const ttstr &line)
-{
-	TVPAddLog(line, true);
-}
-//---------------------------------------------------------------------------
-ttstr TVPGetImportantLog()
-{
-	if(!TVPImportantLogs) return ttstr();
-	return *TVPImportantLogs;
-}
-//---------------------------------------------------------------------------
-
-
-
-
-//---------------------------------------------------------------------------
-// TVPGetLastLog : get last n lines of the log ( each line is spearated with '\n'/'\r\n' )
-//---------------------------------------------------------------------------
-ttstr TVPGetLastLog(tjs_uint n)
-{
-	TVPEnsureLogObjects();
-	if(!TVPLogDeque) return TJS_W(""); // log system is shuttingdown
-
-	tjs_uint len = 0;
-	tjs_uint size = (tjs_uint)TVPLogDeque->size();
-	if(n > size) n = size;
-	if(n==0) return ttstr();
-	std::deque<tTVPLogItem>::iterator i = TVPLogDeque->end();
-	i-=n;
-	tjs_uint c;
-	for(c = 0; c<n; c++, i++)
-	{
-#ifdef TJS_TEXT_OUT_CRLF
-		len += i->Time.GetLen() + 1 +  i->Log.GetLen() + 2;
-#else
-		len += i->Time.GetLen() + 1 +  i->Log.GetLen() + 1;
-#endif
-	}
-
-	ttstr buf((tTJSStringBufferLength)len);
-	tjs_char *p = buf.Independ();
-
-	i = TVPLogDeque->end();
-	i -= n;
-	for(c = 0; c<n; c++)
-	{
-		TJS_strcpy(p, i->Time.c_str());
-		p += i->Time.GetLen();
-		*p = TJS_W(' ');
-		p++;
-		TJS_strcpy(p, i->Log.c_str());
-		p += i->Log.GetLen();
-#ifdef TJS_TEXT_OUT_CRLF
-		*p = TJS_W('\r');
-		p++;
-		*p = TJS_W('\n');
-		p++;
-#else
-		*p = TJS_W('\n');
-		p++;
-#endif
-		i++;
-	}
-	return buf;
-}
-//---------------------------------------------------------------------------
-
-
-
-
-//---------------------------------------------------------------------------
-// TVPStartLogToFile
-//---------------------------------------------------------------------------
-void TVPStartLogToFile(bool clear)
-{
-	TVPEnsureLogObjects();
-	if(!TVPImportantLogs) return; // log system is shuttingdown
-
-	if(TVPLoggingToFile) return; // already logging
-	if(clear) TVPLogStreamHolder.Clear();
-
-	// log last lines
-
-	TVPLogStreamHolder.Log(*TVPImportantLogs);
-
-#ifdef TJS_TEXT_OUT_CRLF
-	ttstr separator(TJS_W("\r\n")
-TJS_W("------------------------------------------------------------------------------\r\n"
-				));
-#else
-	ttstr separator(TJS_W("\n")
-TJS_W("------------------------------------------------------------------------------\n"
-				));
-#endif
-
-	TVPLogStreamHolder.Log(separator);
-
-	ttstr content = TVPGetLastLog(TVPLogToFileRollBack);
-	TVPLogStreamHolder.Log(content);
-
-	//
-	TVPLoggingToFile = true;
-}
-//---------------------------------------------------------------------------
-
-
-
-//---------------------------------------------------------------------------
-// TVPOnError
-//---------------------------------------------------------------------------
-void TVPOnError()
-{
-	if(TVPAutoLogToFileOnError) TVPStartLogToFile(TVPAutoClearLogOnError);
-	// TVPOnErrorHook();
-}
-//---------------------------------------------------------------------------
-
-
-
-//---------------------------------------------------------------------------
-// TVPSetLogLocation
-//---------------------------------------------------------------------------
-void TVPSetLogLocation(const ttstr &loc)
-{
-	TVPLogLocation = TVPNormalizeStorageName(loc);
-
-	if(loc.IsEmpty()) {
-		TVPNativeLogLocation[0] = 0;
-		TVPLogLocation.Clear();
-	} else {
-		ttstr native = TVPGetLocallyAccessibleName(TVPLogLocation);
-		if(native.IsEmpty())
-		{
-			TVPNativeLogLocation[0] = 0;
-			TVPLogLocation.Clear();
-		}
-		else
-		{
-			TJS_strcpy(TVPNativeLogLocation, native.AsStdString().c_str());
-			if(TVPNativeLogLocation[TJS_strlen(TVPNativeLogLocation)-1] != TJS_W('\\'))
-				TJS_strcat(TVPNativeLogLocation, TJS_W("\\"));
-		}
-	}
-
-	TVPLogStreamHolder.Reopen();
-
-	// check force logging option
-	tTJSVariant val;
-	if(TVPGetCommandLine(TJS_W("-forcelog"), &val) )
-	{
-		ttstr str(val);
-		if(str == TJS_W("yes"))
-		{
-			TVPLoggingToFile = false;
-			TVPStartLogToFile(false);
-		}
-		else if(str == TJS_W("clear"))
-		{
-			TVPLoggingToFile = false;
-			TVPStartLogToFile(true);
-		}
-	}
-	if(TVPGetCommandLine(TJS_W("-logerror"), &val) )
-	{
-		ttstr str(val);
-		if(str == TJS_W("no"))
-		{
-			TVPAutoClearLogOnError = false;
-			TVPAutoLogToFileOnError = false;
-		}
-		else if(str == TJS_W("clear"))
-		{
-			TVPAutoClearLogOnError = true;
-			TVPAutoLogToFileOnError = true;
-		}
-	}
-}
-//---------------------------------------------------------------------------
-
-
-
-//---------------------------------------------------------------------------
 // tTJSNC_Debug
 //---------------------------------------------------------------------------
 tjs_uint32 tTJSNC_Debug::ClassID = -1;
+//---------------------------------------------------------------------------
+// TVPPrettyPrint 実装
+//---------------------------------------------------------------------------
+namespace {
+
+struct PPContext
+{
+	int remaining_depth;
+	bool compact;
+	std::vector<iTJSDispatch2*> stack; // 循環検出
+};
+
+static ttstr PrettyIndent(int level)
+{
+	ttstr s;
+	for (int i = 0; i < level; ++i) s += TJS_W("  ");
+	return s;
+}
+
+static ttstr PrettyPrintImpl(const tTJSVariant &v, PPContext &ctx, int indentLevel);
+
+// dict の各エントリを拾って並べるコールバック
+struct PPDictCallback : public tTJSDispatch
+{
+	PPContext *ctx;
+	int indentLevel;
+	std::vector<std::pair<ttstr, ttstr>> *entries;
+
+	tjs_error TJS_INTF_METHOD FuncCall(
+		tjs_uint32 /*flag*/, const tjs_char * /*membername*/, tjs_uint32 * /*hint*/,
+		tTJSVariant *result, tjs_int numparams, tTJSVariant **param,
+		iTJSDispatch2 * /*objthis*/) override
+	{
+		if (numparams < 3) return TJS_E_BADPARAMCOUNT;
+		tjs_uint32 flags = (tjs_int)*param[1];
+		if (flags & TJS_HIDDENMEMBER) {
+			if (result) *result = (tjs_int)1;
+			return TJS_S_OK;
+		}
+		ttstr key = ttstr(TJS_W("\"")) + ttstr(*param[0]).EscapeC() + TJS_W("\"");
+		ttstr val = PrettyPrintImpl(*param[2], *ctx, indentLevel);
+		entries->emplace_back(std::move(key), std::move(val));
+		if (result) *result = (tjs_int)1;
+		return TJS_S_OK;
+	}
+};
+
+static bool IsInstanceOfName(iTJSDispatch2 *dsp, const tjs_char *name)
+{
+	if (!dsp) return false;
+	return dsp->IsInstanceOf(0, NULL, NULL, name, dsp) == TJS_S_TRUE;
+}
+
+static ttstr PrettyPrintArray(iTJSDispatch2 *dsp, PPContext &ctx, int indentLevel)
+{
+	tTJSVariant countVar;
+	if (TJS_FAILED(dsp->PropGet(0, TJS_W("count"), NULL, &countVar, dsp))) {
+		return TJS_W("(Array)");
+	}
+	tjs_int count = (tjs_int)countVar.AsInteger();
+	if (count <= 0) return TJS_W("[]");
+	if (ctx.remaining_depth <= 0) return TJS_W("[...]");
+
+	--ctx.remaining_depth;
+	std::vector<ttstr> elems;
+	elems.reserve(count);
+	for (tjs_int i = 0; i < count; ++i) {
+		tTJSVariant val;
+		if (TJS_FAILED(dsp->PropGetByNum(0, i, &val, dsp))) {
+			elems.emplace_back(TJS_W("(?)"));
+			continue;
+		}
+		elems.push_back(PrettyPrintImpl(val, ctx, indentLevel + 1));
+	}
+	++ctx.remaining_depth;
+
+	ttstr out;
+	if (ctx.compact) {
+		out = TJS_W("[");
+		for (size_t i = 0; i < elems.size(); ++i) {
+			if (i) out += TJS_W(", ");
+			out += elems[i];
+		}
+		out += TJS_W("]");
+	} else {
+		ttstr inner = PrettyIndent(indentLevel + 1);
+		ttstr outer = PrettyIndent(indentLevel);
+		out = TJS_W("[\n");
+		for (size_t i = 0; i < elems.size(); ++i) {
+			out += inner;
+			out += elems[i];
+			if (i + 1 < elems.size()) out += TJS_W(",");
+			out += TJS_W("\n");
+		}
+		out += outer;
+		out += TJS_W("]");
+	}
+	return out;
+}
+
+static ttstr PrettyPrintDict(iTJSDispatch2 *dsp, PPContext &ctx, int indentLevel)
+{
+	if (ctx.remaining_depth <= 0) return TJS_W("%[...]");
+
+	std::vector<std::pair<ttstr, ttstr>> entries;
+	--ctx.remaining_depth;
+
+	PPDictCallback cb;
+	cb.ctx = &ctx;
+	cb.indentLevel = indentLevel + 1;
+	cb.entries = &entries;
+	tTJSVariantClosure clo(&cb, NULL);
+	dsp->EnumMembers(TJS_IGNOREPROP, &clo, dsp);
+
+	++ctx.remaining_depth;
+
+	if (entries.empty()) return TJS_W("%[]");
+
+	ttstr out;
+	if (ctx.compact) {
+		out = TJS_W("%[");
+		for (size_t i = 0; i < entries.size(); ++i) {
+			if (i) out += TJS_W(", ");
+			out += entries[i].first;
+			out += TJS_W(" => ");
+			out += entries[i].second;
+		}
+		out += TJS_W("]");
+	} else {
+		ttstr inner = PrettyIndent(indentLevel + 1);
+		ttstr outer = PrettyIndent(indentLevel);
+		out = TJS_W("%[\n");
+		for (size_t i = 0; i < entries.size(); ++i) {
+			out += inner;
+			out += entries[i].first;
+			out += TJS_W(" => ");
+			out += entries[i].second;
+			if (i + 1 < entries.size()) out += TJS_W(",");
+			out += TJS_W("\n");
+		}
+		out += outer;
+		out += TJS_W("]");
+	}
+	return out;
+}
+
+static ttstr PrettyPrintObject(const tTJSVariant &v, PPContext &ctx, int indentLevel)
+{
+	tTJSVariantClosure clo = v.AsObjectClosureNoAddRef();
+	iTJSDispatch2 *dsp = clo.SelectObjectNoAddRef();
+	if (!dsp) return TJS_W("(null)");
+
+	// 循環検出
+	for (auto *p : ctx.stack) {
+		if (p == dsp) return TJS_W("(recursion)");
+	}
+
+	// Array
+	if (IsInstanceOfName(dsp, TJS_W("Array"))) {
+		ctx.stack.push_back(dsp);
+		ttstr s = PrettyPrintArray(dsp, ctx, indentLevel);
+		ctx.stack.pop_back();
+		return s;
+	}
+
+	// Dictionary
+	if (IsInstanceOfName(dsp, TJS_W("Dictionary"))) {
+		ctx.stack.push_back(dsp);
+		ttstr s = PrettyPrintDict(dsp, ctx, indentLevel);
+		ctx.stack.pop_back();
+		return s;
+	}
+
+	// Function
+	if (IsInstanceOfName(dsp, TJS_W("Function"))) {
+		return TJS_W("(function)");
+	}
+
+	// Class
+	if (IsInstanceOfName(dsp, TJS_W("Class"))) {
+		return TJS_W("(class)");
+	}
+
+	// Property
+	if (IsInstanceOfName(dsp, TJS_W("Property"))) {
+		return TJS_W("(property)");
+	}
+
+	// その他: アドレス付きで表示
+	tjs_char buf[64];
+	TJS_snprintf(buf, sizeof(buf)/sizeof(buf[0]), TJS_W("(object: 0x%p)"), (void*)dsp);
+	return ttstr(buf);
+}
+
+static ttstr PrettyPrintImpl(const tTJSVariant &v, PPContext &ctx, int indentLevel)
+{
+	switch (v.Type()) {
+		case tvtVoid:
+			return TJS_W("(void)");
+		case tvtObject:
+			return PrettyPrintObject(v, ctx, indentLevel);
+		case tvtString:
+		case tvtInteger:
+		case tvtReal:
+		case tvtOctet:
+		default:
+			return TJSVariantToExpressionString(v);
+	}
+}
+
+} // anonymous namespace
+
+ttstr TVPPrettyPrint(const tTJSVariant &variant, int depth, bool compact)
+{
+	PPContext ctx;
+	ctx.remaining_depth = depth;
+	ctx.compact = compact;
+	return PrettyPrintImpl(variant, ctx, 0);
+}
+//---------------------------------------------------------------------------
+
 tTJSNC_Debug::tTJSNC_Debug() : tTJSNativeClass(TJS_W("Debug"))
 {
 	TJS_BEGIN_NATIVE_MEMBERS(Debug)
@@ -785,6 +387,21 @@ TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/getLastLog)
 	return TJS_S_OK;
 }
 TJS_END_NATIVE_STATIC_METHOD_DECL(/*func. name*/getLastLog)
+//---------------------------------------------------------------------------
+TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/prettyPrint)
+{
+	// Debug.prettyPrint(value [, depth = 2 [, compact = false]])
+	if(numparams < 1) return TJS_E_BADPARAMCOUNT;
+
+	int depth = 2;
+	bool compact = false;
+	if(numparams >= 2) depth = (int)param[1]->AsInteger();
+	if(numparams >= 3) compact = param[2]->operator bool();
+
+	if(result) *result = TVPPrettyPrint(*param[0], depth, compact);
+	return TJS_S_OK;
+}
+TJS_END_NATIVE_STATIC_METHOD_DECL(/*func. name*/prettyPrint)
 //---------------------------------------------------------------------------
 
 //-- properies

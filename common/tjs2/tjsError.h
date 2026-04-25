@@ -317,7 +317,7 @@ namespace TJS
 {
 #ifdef TJS_DECL_MESSAGE_BODY
 	#define TJS_MSG_DECL(name, msg) tTJSMessageHolder name(TJS_W(#name), msg);
-	#define TJS_MSG_DECL_NULL(name) tTJSMessageHolder name(TJS_W(#name), NULL);
+	#define TJS_MSG_DECL_NULL(name) tTJSMessageHolder name(TJS_W(#name), TJS_W(#name));
 #else
 	#define TJS_MSG_DECL(name, msg) extern tTJSMessageHolder name;
 	#define TJS_MSG_DECL_NULL(name) extern tTJSMessageHolder name;

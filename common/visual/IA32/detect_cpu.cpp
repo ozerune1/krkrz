@@ -43,16 +43,28 @@ static inline void krkrz_cpuidex(int CPUInfo[4],int InfoType,int ECXValue) {
 #undef __cpuid
 #define __cpuid(info, op)          krkrz_cpuid((info), (op))
 #define __cpuidex(info, op, ecxv)  krkrz_cpuidex((info), (op), (ecxv))
-/* AVX/AVX2 の OS-support 検査は GCC/Clang の組み込みで OS の YMM 保存ビットを
-   含めて判定してくれる (内部で xgetbv を呼ぶ)。__builtin_cpu_init() を 1 度
-   叩いてから __builtin_cpu_supports("avx") / "avx2" を使う。 */
+/* __builtin_cpu_supports は libgcc/compiler-rt の __cpu_model /
+   __cpu_indicator_init に依存するため、これらのランタイムを持たない
+   ツールチェインではリンクに失敗する。
+   代わりに CPUID の OSXSAVE(ECX bit27) を見てから _xgetbv(0) で XCR0 の
+   XMM(bit1)+YMM(bit2) 保存ビットを直接確認する。AVX/AVX2 とも OS 側の
+   YMM state 保存要件は同じなのでヘルパは 1 つで足りる。 */
+static inline unsigned long long krkrz_xgetbv(unsigned int index) {
+	unsigned int eax, edx;
+	__asm__ __volatile__("xgetbv" : "=a"(eax), "=d"(edx) : "c"(index));
+	return ((unsigned long long)edx << 32) | eax;
+}
 static bool __os_has_avx_support() {
-	__builtin_cpu_init();
-	return __builtin_cpu_supports("avx") != 0;
+	int info[4] = {0,0,0,0};
+	krkrz_cpuid(info, 1);
+	const int OSXSAVE = 1 << 27;
+	const int AVX     = 1 << 28;
+	if( (info[2] & (OSXSAVE|AVX)) != (OSXSAVE|AVX) ) return false;
+	unsigned long long xcr0 = krkrz_xgetbv(0);
+	return (xcr0 & 0x6) == 0x6;
 }
 static bool __os_has_avx2_support() {
-	__builtin_cpu_init();
-	return __builtin_cpu_supports("avx2") != 0;
+	return __os_has_avx_support();
 }
 #endif
 

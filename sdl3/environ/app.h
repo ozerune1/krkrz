@@ -88,16 +88,20 @@ public:
 	// システム諸元取得
 	// ----------------------------------------------------------------------
 
+	virtual const tjs_string& InitDataPath(); //< セーブデータ用のパスを初期化して返す
+
 	virtual const tjs_string& ExePath() const { return _ExePath; }//< 実行ファイルのパス
 	virtual const tjs_string& AppPath() const { return _AppPath; } //< 既定のパス
 	virtual const tjs_string& ResourcePath() const {return _ResourcePath; } //< リソースフォルダのパス
 	virtual const tjs_string& PluginPath() const {return _PluginPath; } //< プラグインフォルダのパス
 	virtual const tjs_string& ProjectPath() const { return _ProjectPath; } //< 実行対象データのパス
-	virtual const tjs_string& DataPath() const { return _DataPath; } //< 実行対象データのパス
-	virtual const tjs_string& LogPath() const { return _LogPath; }; //< 実行対象データのパス
+	virtual const tjs_string& LogPath() const { return _DataPath; }; //< ログデータのパス
 
 	virtual const std::string& getLanguage() const { return _language; }; //< 言語名取得
 	virtual const std::string& getCountry() const { return _country; }; //< 国名取得
+
+	virtual const tjs_string& getPlatformName() const { return _platformName; }
+	virtual const tjs_string& getOsName() const { return _osName; }
 
 	// アプリ処理用の WindowForm 実装を返す
 	virtual TTVPWindowForm *CreateWindowForm(class tTJSNI_Window *win);
@@ -162,12 +166,14 @@ protected:
 	tjs_string _ExePath;    //< 実行ファイルのパス
 	tjs_string _PluginPath; //< プラグインフォルダのパス
 	tjs_string _ProjectPath;   //< プロジェクトデータのパス
-	tjs_string _DataPath;   //< 書き出しデータのパス
-	tjs_string _LogPath;   //<  ログデータのパス
+	tjs_string _DataPath; //< セーブデータのパス
 	tjs_string _AppPath;    //< 実行ファイルのある場所のパス
 	tjs_string _ResourcePath; //< リソースデータのパス
 	std::string _language; //< 言語名
 	std::string _country; //< 国名
+
+	tjs_string _platformName; //< プラットフォーム名
+	tjs_string _osName; //< OS名
 
 	bool _Terminated;
 	int _TerminateCode;

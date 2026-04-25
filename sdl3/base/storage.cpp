@@ -222,6 +222,20 @@ public:
 
         return SDL_RenameStoragePath(Storage, from_path_utf8.c_str(), to_path_utf8.c_str());
     }
+
+    virtual tjs_uint64 TJS_INTF_METHOD LastModifiedFileTime(const ttstr &name) override {
+
+        std::string path_utf8;
+        TVPUtf16ToUtf8(path_utf8, name.c_str());
+
+        SDL_PathInfo pathInfo;
+        if (SDL_GetStoragePathInfo(Storage, path_utf8.c_str(), &pathInfo) && pathInfo.type == SDL_PATHTYPE_FILE) {
+            constexpr tjs_uint64 UNIX_EPOCH_IN_100NS = 11644473600000000000ULL; // 100-ns intervals from 1601-01-01 to 1970-01-01
+            tjs_uint64 mod_time_100ns = static_cast<tjs_uint64>(pathInfo.modify_time) * 10000000ULL + UNIX_EPOCH_IN_100NS;
+            return mod_time_100ns;				
+        }
+        return 0;		
+    }    
 };
 
 static SDLStorageMedia *UserStorage = nullptr;

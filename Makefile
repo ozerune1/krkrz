@@ -68,7 +68,7 @@ test:
 	ctest --test-dir $(BUILD_PATH) -C $(BUILD_TYPE) -R parity --output-on-failure
 
 # WIN版用ルール
-ifeq (windows,$(findstring windows,$(PRESET)))
+ifeq ($(findstring windows,$(PRESET)),windows)
 
 DATAPATH?=data
 DATAPATH_ABS=$(shell $(FIXPATH) "$(DATAPATH)")

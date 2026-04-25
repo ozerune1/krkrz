@@ -31,6 +31,7 @@ public:
 	virtual iTJSBinaryStream *OpenStream(const tjs_char *path, const tjs_uint32 flags);
 	virtual void CommitSavedata();
 	virtual void RollbackSavedata();
+	virtual tjs_uint64 LastModifiedFileTime(const tjs_char *path);
 };
 
 SDL3FileSystem::SDL3FileSystem()
@@ -357,6 +358,20 @@ SDL3FileSystem::RollbackSavedata()
 		auto msg = SDL_GetError();
 		TVPLOG_ERROR("Failed to rollback save data:{}", msg);
 	}
+}
+
+tjs_uint64
+SDL3FileSystem::LastModifiedFileTime(const tjs_char *path)
+{
+	std::string file_path_utf8;
+	TVPUtf16ToUtf8(file_path_utf8, path);
+	SDL_PathInfo pathInfo;
+	if (SDL_GetPathInfo(file_path_utf8.c_str(), &pathInfo) && pathInfo.type == SDL_PATHTYPE_FILE) {
+		constexpr tjs_uint64 UNIX_EPOCH_IN_100NS = 11644473600000000000ULL; // 100-ns intervals from 1601-01-01 to 1970-01-01
+		tjs_uint64 mod_time_100ns = static_cast<tjs_uint64>(pathInfo.modify_time) * 10000000ULL + UNIX_EPOCH_IN_100NS;
+		return mod_time_100ns;				
+	}
+	return 0;
 }
 
 iTVPLocalFileSystem *

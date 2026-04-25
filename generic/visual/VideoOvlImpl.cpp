@@ -20,6 +20,36 @@
 #include "LayerBitmapIntf.h"
 #include "MsgImpl.h"
 #include "LogIntf.h"
+#include "IMoviePlayer.h"
+
+//---------------------------------------------------------------------------
+// iTJSBinaryStream → IMovieReadStream アダプタ
+//---------------------------------------------------------------------------
+class TJSMovieReadStream : public IMovieReadStream {
+	iTJSBinaryStream *mStream;
+	int mRefCount;
+public:
+	TJSMovieReadStream(iTJSBinaryStream *s) : mStream(s), mRefCount(1) {}
+	~TJSMovieReadStream() { if (mStream) mStream->Destruct(); }
+	int AddRef() override { return ++mRefCount; }
+	int Release() override {
+		int r = --mRefCount;
+		if (r <= 0) delete this;
+		return r;
+	}
+	size_t Read(void *buf, size_t size) override {
+		return mStream->Read(buf, (tjs_uint)size);
+	}
+	int64_t Tell() const override {
+		return (int64_t)const_cast<iTJSBinaryStream*>(mStream)->GetPosition();
+	}
+	void Seek(int64_t offset, int origin) override {
+		mStream->Seek(offset, origin);
+	}
+	size_t Size() const override {
+		return (size_t)const_cast<iTJSBinaryStream*>(mStream)->GetSize();
+	}
+};
 
 //---------------------------------------------------------------------------
 // tTJSNI_VideoOverlay
@@ -111,7 +141,7 @@ tTJSNI_VideoOverlay::Update()
 }
 
 //---------------------------------------------------------------------------
-void tTJSNI_VideoOverlay::Open(const ttstr &name) 
+void tTJSNI_VideoOverlay::Open(const ttstr &name)
 {
 	Close();
 
@@ -123,9 +153,19 @@ void tTJSNI_VideoOverlay::Open(const ttstr &name)
 		path = newpath;
 	}
 
-    TVPGetLocalName(path);
-
-	mPlayer = TVPCreateMoviePlayer(path.c_str());
+	// 吉里吉里のストレージ層からストリームを取得（XP3アーカイブ対応）
+	iTJSBinaryStream *tjsStream = TVPCreateStream(path);
+	if (!tjsStream) {
+		SetStatus(tTVPVideoOverlayStatus::LoadError);
+		return;
+	}
+	IMovieReadStream *movieStream = new TJSMovieReadStream(tjsStream);
+	std::string utf8name;
+	TVPUtf16ToUtf8(utf8name, path.c_str());
+	mPlayer = TVPCreateMoviePlayer(movieStream, utf8name.c_str());
+	if (!mPlayer) {
+		movieStream->Release();
+	}
 	if (mPlayer) {
 		mPlayer->SetOnVideoDecoded([this](int w, int h, iTVPMoviePlayer::DestUpdater updater) {
 			if (Mode == vomMixer) {

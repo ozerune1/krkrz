@@ -34,6 +34,26 @@ inline tjs_string to_tjs_string( unsigned long long value ) { return to_format_s
 inline tjs_string to_tjs_string( float value ) { return to_format_str( value, TJS_W("%f") ); }
 inline tjs_string to_tjs_string( double value ) { return to_format_str( value, TJS_W("%lf") ); }
 
+template<
+    class CharT,
+    class Traits = std::char_traits<CharT>,
+    class Alloc = std::allocator<CharT>
+>
+std::basic_string<CharT, Traits, Alloc>
+string_replace_all(
+    std::basic_string<CharT, Traits, Alloc> s,
+    std::basic_string_view<CharT, Traits> from,
+    std::basic_string_view<CharT, Traits> to)
+{
+    if (from.empty()) return s;
+
+    typename std::basic_string<CharT, Traits, Alloc>::size_type pos = 0;
+    while ((pos = s.find(from, pos)) != std::basic_string<CharT, Traits, Alloc>::npos) {
+        s.replace(pos, from.size(), to);
+        pos += to.size();
+    }
+    return s;
+}
 
 namespace TJS
 {

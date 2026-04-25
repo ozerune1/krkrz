@@ -77,7 +77,7 @@ bool TVPGetAsyncKeyState(tjs_uint keycode, bool getcurrent)
 //---------------------------------------------------------------------------
 ttstr TVPGetPlatformName()
 {
-	static ttstr platform(TJS_W("Generic"));
+	ttstr platform = Application->getPlatformName().c_str();
 	return platform;
 }
 //---------------------------------------------------------------------------
@@ -87,12 +87,8 @@ ttstr TVPGetPlatformName()
 //---------------------------------------------------------------------------
 ttstr TVPGetOSName()
 {
-	const tjs_char *osname = TJS_W("Generic");
-
-	tjs_char buf[256];
-	TJS_snprintf(buf, sizeof(buf)/sizeof(tjs_char), TJS_W("%ls"), osname);
-
-	return ttstr(buf);
+	ttstr osName = Application->getOsName().c_str();
+	return osName;
 }
 //---------------------------------------------------------------------------
 
@@ -101,8 +97,12 @@ ttstr TVPGetOSName()
 //---------------------------------------------------------------------------
 tjs_int TVPGetOSBits()
 {
-	// XXX 要実装
-	return 32;
+	// Platform-specific OS bits detection
+	#if defined(__aarch64__) || defined(_M_ARM64) || defined(TJS_64BIT_OS)
+		return 64;
+	#else
+		return 32;
+	#endif
 }
 //---------------------------------------------------------------------------
 

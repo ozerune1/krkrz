@@ -276,9 +276,19 @@ tTVPPlugin::tTVPPlugin(const ttstr & name) : Name(name), Instance(nullptr),
 			soname = TJS_W("lib") + soname;
 		}
 	}
+
+	ttstr libpath;
+#ifdef ANDROID
+	// 直接ロードのみ可
+	libpath = soname;
+#else
 	Holder = new tTVPPluginHolder(soname);
 	if( TVPCheckExistentLocalFile(Holder->GetLocalName()) ) {
-		Instance = Application->LoadLibrary( Holder->GetLocalName().AsStdString().c_str() );
+		libpath  = Holder->GetLocalName();
+	}
+#endif
+	if (!libpath.IsEmpty()) {
+		Instance = Application->LoadLibrary(libpath.c_str());
 	}
 	if(!Instance)
 	{

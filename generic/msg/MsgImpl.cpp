@@ -18,8 +18,8 @@
 #include "PluginImpl.h"
 
 #define TVP_MSG_DECL(name, msg) tTJSMessageHolder name(TJS_W(#name), msg);
-#define TVP_MSG_DECL_CONST(name, msg) tTJSMessageHolder name(TJS_W(#name), msg, false);
-#define TVP_MSG_DECL_NULL(name) tTJSMessageHolder name(TJS_W(#name), TJS_W("msg:" #name), false);
+#define TVP_MSG_DECL_CONST(name, msg) tTJSMessageHolder name(TJS_W(#name), msg, /*regist*/false);
+#define TVP_MSG_DECL_NULL(name) tTJSMessageHolder name(TJS_W(#name), TJS_W(#name));
 #include "MsgImpl.h"
 
 //---------------------------------------------------------------------------

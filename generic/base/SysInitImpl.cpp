@@ -30,7 +30,6 @@
 #include "BinaryStream.h"
 #include "Application.h"
 #include "Exception.h"
-#include "ApplicationSpecialPath.h"
 #include "TickCount.h"
 #include "CharacterSet.h"
 
@@ -587,30 +586,25 @@ static void TVPInitProgramArgumentsAndDataPath(bool stop_after_datapath_got)
 			PushConfigFileOptions(options[1]); // has more priority
 			PushConfigFileOptions(options[0]); // has lesser priority
 
-			// データ保存先
-#if 0
-			// read datapath
-			tTJSVariant val;
-			tjs_string config_datapath;
-			if(TVPGetCommandLine(TJS_W("-datapath"), &val))
-				config_datapath = ((ttstr)val).AsStdString();
-			TVPNativeDataPath = ApplicationSpecialPath::GetDataPathDirectory(config_datapath, ExePath());
-#else
-			TVPNativeDataPath = Application->DataPath();
-#endif
+			TVPNativeDataPath = Application->InitDataPath();
 
 			if(stop_after_datapath_got) return;
 
 			// read per-user configuration file
-			// TODO : ユーザー設定は SharedPreference から読み込むようにするのが望ましい
-			//options[2] = TVPGetConfigFileOptions(ApplicationSpecialPath::GetUserConfigFileName(config_datapath, ExePath()));
+			// TVPNativeDataPath がローカルパスでないとこれだと開けない
+			if (false) {
+				ttstr fname  = TVPNativeDataPath;
+				fname += TVPChopStorageExt(TVPExtractStorageName(ttstr(Application->ExePath().c_str())));
+				fname += TJS_W(".cfu");	
+				options[2] = TVPGetConfigFileOptions(fname.c_str());
+			}
 
 			// push each options into option stock
 			// we need to clear TVPProgramArguments first because of the
 			// option priority order.
 			TVPProgramArguments.clear();
 			PushAllCommandlineArguments();
-			//PushConfigFileOptions(options[2]); // has more priority
+			PushConfigFileOptions(options[2]); // has more priority
 			PushConfigFileOptions(options[1]); // has more priority
 			PushConfigFileOptions(options[0]); // has lesser priority
 		} catch(...) {

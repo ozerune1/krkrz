@@ -145,6 +145,9 @@ public:
 
 	virtual bool TJS_INTF_METHOD Move(const ttstr & from, const ttstr & to) = 0;
 		// move file or directory. "from" and "to" are normalized but do not contain media name.		
+
+	virtual tjs_uint64 TJS_INTF_METHOD  LastModifiedFileTime(const ttstr &name) = 0;	
+		// returns last modified file time in 100-nanosecond intervals since January 1, 1601 (UTC).
 };
 
 //---------------------------------------------------------------------------
@@ -214,6 +217,10 @@ bool TVPMoveFile(const ttstr &oldname, const ttstr &newname);
 extern void TVPGetStorageListAt(const ttstr &name, iTVPStorageLister *lister);
 	// list files at given place
 
+extern tjs_uint64 TVPLastModifiedFileTime(const ttstr &name);
+	// returns last modified file time in 100-nanosecond intervals since January 1, 1601 (UTC).
+	// "name" is a local *native* name. if the file does not exist, return 0.
+
 //---------------------------------------------------------------------------
 
 //---------------------------------------------------------------------------
@@ -230,6 +237,8 @@ TJS_EXP_FUNC_DEF(bool, TVPRemoveStorage, (const ttstr &name));
 	// remove file path
 TJS_EXP_FUNC_DEF(bool, TVPMoveStorage, (const ttstr &from, const ttstr &to));
 	// move file path
+TJS_EXP_FUNC_DEF(tjs_uint64, TVPLastModifiedFileTimeStorage, (const ttstr &name));
+	// returns last modified file time in 100-nanosecond intervals since January 1, 1601 (UTC).	
 
 TJS_EXP_FUNC_DEF(iTJSBinaryStream *, TVPCreateStream, (const ttstr & name, tjs_uint32 flags = 0));
 	// open "name" and return iTJSBinaryStream instance.

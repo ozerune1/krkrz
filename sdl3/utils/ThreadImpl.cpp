@@ -14,7 +14,7 @@ public:
 	virtual void WaitFor();
 	virtual void SetPriority(tTVPThreadPriority pri);
 	virtual void SetProcessorNo(int no);
-#ifdef _WIN32
+#if defined(SDL_PLATFORM_WINDOWS)
 	virtual HANDLE GetHandle() const { return nullptr; } /* SDL3 doesn't provide native handle */
 #endif
 private:

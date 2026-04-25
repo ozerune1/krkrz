@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <functional>
 
+class IMovieReadStream;
+
 /**
  * レイヤ上で動画再生するための汎用インターフェース
 */
@@ -46,5 +48,6 @@ public:
 };
 
 extern iTVPMoviePlayer*TVPCreateMoviePlayer(const tjs_char *filename);
+extern iTVPMoviePlayer*TVPCreateMoviePlayer(IMovieReadStream *stream, const char *filename);
 
 #endif

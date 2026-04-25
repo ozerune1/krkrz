@@ -308,6 +308,7 @@ public:
 	
 	bool Remove(const ttstr & name);
 	bool Move(const ttstr & from, const ttstr & to);
+	tjs_uint64 LastModifiedFileTime(const ttstr &name);
 
 } TVPStorageMediaManager;
 //---------------------------------------------------------------------------
@@ -659,7 +660,7 @@ bool tTVPStorageMediaManager::Remove(const ttstr & name)
 	if (rec->version >= 2) {
 		// if media supports iTVPStorageMedia2, use Remove2 method
 		TVPLOG_DEBUG("Trying to remove storage by media's Remove method: {}", name);
-		iTVPStorageMedia2 *media2 = dynamic_cast<iTVPStorageMedia2 *>(rec->MediaIntf.GetObjectNoAddRef());
+		iTVPStorageMedia2 *media2 = (iTVPStorageMedia2 *)(rec->MediaIntf.GetObjectNoAddRef());
 		if (media2 && media2->Remove(dname)) {
 			TVPLOG_DEBUG("Remove by media's Remove method succeeded: {}", name);
 			return true;
@@ -687,7 +688,7 @@ bool tTVPStorageMediaManager::Move(const ttstr & from, const ttstr & to)
 	if (rec->version >= 2) {
 		// if media supports iTVPStorageMedia2, use Remove method
 		TVPLOG_DEBUG("Trying to move storage by media's Move method: from:{} to:{}", from, to);
-		iTVPStorageMedia2 *media2 = dynamic_cast<iTVPStorageMedia2 *>(rec->MediaIntf.GetObjectNoAddRef());
+		iTVPStorageMedia2 *media2 = (iTVPStorageMedia2 *)(rec->MediaIntf.GetObjectNoAddRef());
 		if (media2 && media2->Move(dname_from, dname_to)) {
 			TVPLOG_DEBUG("Move by media's Move method succeeded: from:{} to:{}", from, to);
 			return true;
@@ -703,6 +704,35 @@ bool tTVPStorageMediaManager::Move(const ttstr & from, const ttstr & to)
 		}
 	}
 	return false;
+}
+
+tjs_uint64 tTVPStorageMediaManager::LastModifiedFileTime(const ttstr &name)
+{
+	tMediaRecord *rec = GetMediaRecord(name);
+	ttstr dname = rec->GetDomainAndPath(name);
+	if (rec->version >= 2) {
+		// if media supports iTVPStorageMedia2, use LastModifiedFileTime method
+		TVPLOG_DEBUG("Trying to get last modified file time by media's LastModifiedFileTime method: {}", name);
+		iTVPStorageMedia2 *media2 = (iTVPStorageMedia2 *)(rec->MediaIntf.GetObjectNoAddRef());
+		if (media2) {
+			tjs_uint64 mod_time = media2->LastModifiedFileTime(dname);
+			if (mod_time != 0) {
+				TVPLOG_DEBUG("Get last modified file time by media's LastModifiedFileTime method succeeded: {}, mod_time: {}", name, mod_time);
+				return mod_time;
+			}
+		}
+	}
+	rec->MediaIntf.GetObjectNoAddRef()->GetLocallyAccessibleName(dname);
+	if (dname != "") {
+		// if the file is accessible from local file system, try to get last modified file time by ourselves
+		TVPLOG_DEBUG("Trying to get last modified file time by local file system: {}", name);
+		tjs_uint64 mod_time = TVPLastModifiedFileTime(dname);
+		if (mod_time != 0) {
+			TVPLOG_DEBUG("Get last modified file time by local file system succeeded: {}, mod_time: {}", name, mod_time);
+			return mod_time;
+		}
+	}
+	return 0;
 }
 
 //---------------------------------------------------------------------------
@@ -731,6 +761,11 @@ bool TVPMoveStorage(const ttstr &from, const ttstr &to)
 {
 	return TVPStorageMediaManager.Move(from, to);
 }
+
+tjs_uint64 TVPLastModifiedFileTimeStorage(const ttstr &name)
+{
+	return TVPStorageMediaManager.LastModifiedFileTime(name);
+}	
 
 //---------------------------------------------------------------------------
 // TVPNormalizeStorgeName : storage name normalization

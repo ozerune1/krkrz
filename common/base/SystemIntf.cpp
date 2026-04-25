@@ -360,8 +360,9 @@ TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/assignMessage)
 
 	ttstr id(*param[0]);
 	ttstr msg(*param[1]);
+	bool createnew = numparams > 2 && param[2]->operator bool();
 
-	bool res = TJSAssignMessage(id.c_str(), msg.c_str());
+	bool res = TJSAssignMessage(id.c_str(), msg.c_str(), createnew);
 
 	if(result) *result = tTJSVariant((tjs_int)res);
 

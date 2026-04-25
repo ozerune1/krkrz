@@ -18,9 +18,9 @@ bool _CheckGLErrorAndLog(const char *file, const int lineno, const char* funcnam
 	case GL_INVALID_FRAMEBUFFER_OPERATION: msg = "GL_INVALID_FRAMEBUFFER_OPERATION"; break;
 	}
 	if( funcname != nullptr ) {
-		TVPLog(TVPLOG_LEVEL_ERROR, file, lineno, funcname, "OpenGL error occurred: {:08x} {}", fmt::make_format_args(error_code, msg));
+		TVPLog(TVPLOG_LEVEL_ERROR, file, lineno, funcname, "OpenGL error occurred: {:08x} {}", tvpfmt::make_format_args(error_code, msg));
 	} else {
-		TVPLog(TVPLOG_LEVEL_ERROR, file, lineno, "", "OpenGL error occurred: {:08x} {}", fmt::make_format_args(error_code, msg));
+		TVPLog(TVPLOG_LEVEL_ERROR, file, lineno, "", "OpenGL error occurred: {:08x} {}", tvpfmt::make_format_args(error_code, msg));
 	}
 	return false;
 }
